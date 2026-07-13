@@ -749,6 +749,27 @@ namespace MarkdownViewer
 <head>
     <meta charset=""UTF-8"">
     {baseTag}
+    <script src=""https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js""></script>
+    <script>
+        (function() {{
+            function renderMermaid() {{
+                var blocks = document.querySelectorAll('pre code.language-mermaid');
+                if (blocks.length === 0) return;
+                if (typeof mermaid === 'undefined') {{ setTimeout(renderMermaid, 100); return; }}
+                mermaid.initialize({{ startOnLoad: false, theme: '{(_isDarkMode ? "dark" : "default")}', securityLevel: 'loose' }});
+                blocks.forEach(function(block) {{
+                    var pre = block.parentElement;
+                    var container = document.createElement('div');
+                    container.className = 'mermaid-container';
+                    container.style.cssText = 'margin:1em 0;text-align:center;overflow-x:auto;';
+                    pre.parentNode.replaceChild(container, pre);
+                    container.textContent = block.textContent;
+                }});
+                mermaid.run({{ querySelector: '.mermaid-container' }});
+            }}
+            renderMermaid();
+        }})();
+    </script>
     <style>
         body {{
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;

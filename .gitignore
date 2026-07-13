@@ -1,0 +1,15 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+*.cache
+*.vs/
+
+## History
+History/
+
+## IDE
+.vs/
+.vscode/
+*.DotSettings.user

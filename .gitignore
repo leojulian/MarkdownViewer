@@ -1,3 +1,5 @@
+.gitignore
+
 ## .NET
 bin/
 obj/
@@ -5,6 +7,9 @@ obj/
 *.suo
 *.cache
 *.vs/
+publish/
+*.zip
+*.ps1
 
 ## History
 History/

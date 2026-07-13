@@ -24,6 +24,9 @@ namespace MarkdownViewer
         private readonly HistoryManager _historyManager;
         private FileSystemWatcher? _fileWatcher;
         private bool _isRestoringFileSelection;
+        private System.Timers.Timer? _debounceTimer;
+        private double _scrollRestoreY;
+        private bool _isAutoReload;
 
         private static readonly HashSet<string> _supportedExtensions = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -51,6 +54,7 @@ namespace MarkdownViewer
             await webView.EnsureCoreWebView2Async();
             webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
             webView.CoreWebView2.Settings.AreBrowserAcceleratorKeysEnabled = false;
+            webView.CoreWebView2.NavigationCompleted += WebView_NavigationCompleted;
 
             // 还原最近一次打开的文件夹
             RestoreLastSession();
@@ -58,6 +62,8 @@ namespace MarkdownViewer
 
         private void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
         {
+            _debounceTimer?.Stop();
+            _debounceTimer?.Dispose();
             StopFileWatcher();
 
             // 关闭时保存当前文件夹及当前文件到历史记录
@@ -321,6 +327,27 @@ namespace MarkdownViewer
             Close();
         }
 
+        private async void AutoReloadCurrentFile()
+        {
+            if (_currentFilePath == null || webView.CoreWebView2 == null)
+                return;
+
+            // 保存当前滚动位置
+            try
+            {
+                var scrollYScript = await webView.CoreWebView2.ExecuteScriptAsync(
+                    "window.scrollY || document.documentElement.scrollTop || 0");
+                _scrollRestoreY = double.TryParse(scrollYScript?.Trim('"'), out var y) ? y : 0;
+            }
+            catch
+            {
+                _scrollRestoreY = 0;
+            }
+
+            _isAutoReload = true;
+            LoadMarkdownFile(_currentFilePath);
+        }
+
         private void LoadMarkdownFile(string filePath)
         {
             try
@@ -340,6 +367,23 @@ namespace MarkdownViewer
                 MessageBox.Show($"加载文件失败: {ex.Message}", "错误",
                     MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+
+        private async void WebView_NavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
+        {
+            if (!_isAutoReload || _scrollRestoreY <= 0)
+                return;
+
+            _isAutoReload = false;
+
+            // 恢复滚动位置（延迟一帧确保 DOM 渲染完成）
+            await System.Threading.Tasks.Task.Delay(50);
+            try
+            {
+                await webView.CoreWebView2.ExecuteScriptAsync(
+                    $"window.scrollTo(0, {_scrollRestoreY});");
+            }
+            catch { /* 忽略 */ }
         }
         #endregion
 
@@ -434,14 +478,25 @@ namespace MarkdownViewer
 
         private void OnFileChanged(object sender, FileSystemEventArgs e)
         {
-            // 文件内容变更时自动刷新渲染（仅当前打开的文件）
-            Dispatcher.Invoke(() =>
+            // 文件内容变更时自动刷新渲染（仅当前打开的文件，带防抖）
+            if (e.FullPath != _currentFilePath || !File.Exists(_currentFilePath))
+                return;
+
+            // 防抖：300ms 内的多次变更合并为一次刷新
+            _debounceTimer?.Stop();
+            _debounceTimer?.Dispose();
+            _debounceTimer = new System.Timers.Timer(300) { AutoReset = false };
+            _debounceTimer.Elapsed += (_, _) =>
             {
-                if (e.FullPath == _currentFilePath && File.Exists(_currentFilePath))
+                Dispatcher.Invoke(() =>
                 {
-                    LoadMarkdownFile(_currentFilePath);
-                }
-            });
+                    if (e.FullPath == _currentFilePath && File.Exists(_currentFilePath))
+                    {
+                        AutoReloadCurrentFile();
+                    }
+                });
+            };
+            _debounceTimer.Start();
         }
 
         private void HandleFileDeleted(string deletedPath)
@@ -819,14 +874,14 @@ namespace MarkdownViewer
         private void About_Click(object sender, RoutedEventArgs e)
         {
             MessageBox.Show(
-                "Markdown 查看器 v1.2\n\n" +
+                "Markdown 查看器 v1.3\n\n" +
                 "基于 WPF + Markdig + WebView2 构建\n" +
                 "支持标准 Markdown 及扩展语法\n\n" +
                 "功能:\n" +
                 "• 文件夹浏览与文档树\n" +
                 "• 拖拽文件/文件夹打开\n" +
                 "• 打开历史记录恢复\n" +
-                "• 文件变更自动刷新\n" +
+                "• 文件变更自动刷新(保持滚动位置)\n" +
                 "• 删除文件自动切换",
                 "关于",
                 MessageBoxButton.OK,

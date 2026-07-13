@@ -193,11 +193,19 @@ namespace MarkdownViewer
                     case Key.D:
                         ToggleDarkMode_Click(sender, e);
                         break;
+                    case Key.F:
+                        ShowSearchBar();
+                        break;
                 }
             }
             else if (e.Key == Key.F5)
             {
                 Reload_Click(sender, e);
+            }
+            else if (e.Key == Key.Escape)
+            {
+                if (SearchBar.Visibility == Visibility.Visible)
+                    CloseSearchBar();
             }
         }
         #endregion
@@ -906,6 +914,105 @@ namespace MarkdownViewer
                 }
             }
             return count;
+        }
+        #endregion
+
+        #region 搜索
+        private void ShowSearchBar()
+        {
+            SearchBar.Visibility = Visibility.Visible;
+            SearchBox.Focus();
+            SearchBox.SelectAll();
+        }
+
+        private void CloseSearchBar()
+        {
+            SearchBar.Visibility = Visibility.Collapsed;
+            SearchBox.Text = "";
+            ClearSearchHighlight();
+        }
+
+        private async void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            await ExecuteFind(true);
+        }
+
+        private async void SearchBox_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter)
+            {
+                e.Handled = true;
+                await ExecuteFind(!Keyboard.Modifiers.HasFlag(ModifierKeys.Shift));
+            }
+            else if (e.Key == Key.Escape)
+            {
+                e.Handled = true;
+                CloseSearchBar();
+            }
+        }
+
+        private async void SearchNext_Click(object sender, RoutedEventArgs e)
+        {
+            await ExecuteFind(true);
+            SearchBox.Focus();
+        }
+
+        private async void SearchPrev_Click(object sender, RoutedEventArgs e)
+        {
+            await ExecuteFind(false);
+            SearchBox.Focus();
+        }
+
+        private void SearchClose_Click(object sender, RoutedEventArgs e)
+        {
+            CloseSearchBar();
+        }
+
+        private async System.Threading.Tasks.Task ExecuteFind(bool forward)
+        {
+            if (webView.CoreWebView2 == null) return;
+            var text = SearchBox.Text;
+            if (string.IsNullOrEmpty(text))
+            {
+                ClearSearchHighlight();
+                SearchCountText.Text = "";
+                return;
+            }
+
+            try
+            {
+                // window.find(text, caseSensitive, backwards, wrapAround, wholeWord, searchInFrames, showDialog)
+                var script = $"window.find('{EscapeJs(text)}', false, {(!forward).ToString().ToLower()}, true, false, true, false);";
+                var result = await webView.CoreWebView2.ExecuteScriptAsync(script);
+                var found = result?.Trim('"') == "true";
+                if (!found)
+                {
+                    // 从头/尾重新搜索
+                    var resetScript = forward
+                        ? "window.getSelection().removeAllRanges(); window.find('" + EscapeJs(text) + "', false, false, true, false, true, false);"
+                        : "window.getSelection().removeAllRanges(); window.find('" + EscapeJs(text) + "', false, true, true, false, true, false);";
+                    await webView.CoreWebView2.ExecuteScriptAsync(resetScript);
+                }
+            }
+            catch
+            {
+                SearchCountText.Text = "搜索出错";
+            }
+        }
+
+        private async void ClearSearchHighlight()
+        {
+            if (webView.CoreWebView2 == null) return;
+            try
+            {
+                await webView.CoreWebView2.ExecuteScriptAsync("window.getSelection().removeAllRanges();");
+            }
+            catch { }
+        }
+
+        private static string EscapeJs(string s)
+        {
+            return s.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "");
         }
         #endregion
 

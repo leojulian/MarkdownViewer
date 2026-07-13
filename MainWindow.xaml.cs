@@ -22,6 +22,7 @@ namespace MarkdownViewer
         private bool _isDarkMode;
         private readonly MarkdownPipeline _pipeline;
         private readonly HistoryManager _historyManager;
+        private static readonly string _mermaidJs = LoadMermaidJs();
         private FileSystemWatcher? _fileWatcher;
         private bool _isRestoringFileSelection;
         private System.Timers.Timer? _debounceTimer;
@@ -32,6 +33,22 @@ namespace MarkdownViewer
         {
             ".md", ".markdown", ".mdown", ".mkd", ".mkdn", ".mdwn", ".mdtxt", ".mdtext", ".rmd"
         };
+
+        private static string LoadMermaidJs()
+        {
+            try
+            {
+                using var stream = typeof(MainWindow).Assembly
+                    .GetManifestResourceStream("MarkdownViewer.mermaid.min.js");
+                if (stream == null) return "";
+                using var reader = new StreamReader(stream);
+                return reader.ReadToEnd();
+            }
+            catch
+            {
+                return "";
+            }
+        }
 
         public MainWindow()
         {
@@ -749,7 +766,8 @@ namespace MarkdownViewer
 <head>
     <meta charset=""UTF-8"">
     {baseTag}
-    <script src=""https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js""></script>
+    <script>/* mermaid.js embedded */
+{_mermaidJs}</script>
     <script>
         (function() {{
             function renderMermaid() {{

@@ -22,7 +22,7 @@ namespace MarkdownViewer
         private bool _isDarkMode;
         private readonly MarkdownPipeline _pipeline;
         private readonly HistoryManager _historyManager;
-        private static readonly string _mermaidJs = LoadMermaidJs();
+        private static readonly string _mermaidJsPath = ExtractMermaidJs();
         private FileSystemWatcher? _fileWatcher;
         private bool _isRestoringFileSelection;
         private System.Timers.Timer? _debounceTimer;
@@ -34,15 +34,21 @@ namespace MarkdownViewer
             ".md", ".markdown", ".mdown", ".mkd", ".mkdn", ".mdwn", ".mdtxt", ".mdtext", ".rmd"
         };
 
-        private static string LoadMermaidJs()
+        private static string ExtractMermaidJs()
         {
             try
             {
+                var exeDir = AppDomain.CurrentDomain.BaseDirectory;
+                var filePath = Path.Combine(exeDir, "mermaid.min.js");
+                if (File.Exists(filePath) && new FileInfo(filePath).Length > 100000)
+                    return filePath;
+
                 using var stream = typeof(MainWindow).Assembly
                     .GetManifestResourceStream("MarkdownViewer.mermaid.min.js");
                 if (stream == null) return "";
-                using var reader = new StreamReader(stream);
-                return reader.ReadToEnd();
+                using var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write);
+                stream.CopyTo(fs);
+                return filePath;
             }
             catch
             {
@@ -381,7 +387,19 @@ namespace MarkdownViewer
                 var html = Markdig.Markdown.ToHtml(markdown, _pipeline);
                 var fullHtml = WrapHtml(html, Path.GetDirectoryName(filePath));
 
-                webView.NavigateToString(fullHtml);
+                var tmpDir = Path.Combine(Path.GetTempPath(), "MarkdownViewer");
+                Directory.CreateDirectory(tmpDir);
+                var htmlPath = Path.Combine(tmpDir, "_render.html");
+                File.WriteAllText(htmlPath, fullHtml, Encoding.UTF8);
+
+                if (!string.IsNullOrEmpty(_mermaidJsPath) && File.Exists(_mermaidJsPath))
+                {
+                    var destJs = Path.Combine(tmpDir, "mermaid.min.js");
+                    if (!File.Exists(destJs) || new FileInfo(destJs).Length != new FileInfo(_mermaidJsPath).Length)
+                        File.Copy(_mermaidJsPath, destJs, true);
+                }
+
+                webView.CoreWebView2.Navigate(new Uri(htmlPath).AbsoluteUri);
                 _currentFilePath = filePath;
                 FilePathText.Text = filePath;
                 StatusText.Text = $"已加载: {Path.GetFileName(filePath)}";
@@ -774,8 +792,7 @@ namespace MarkdownViewer
 <head>
     <meta charset=""UTF-8"">
     {baseTag}
-    <script>/* mermaid.js embedded */
-{_mermaidJs}</script>
+    <script src=""mermaid.min.js""></script>
     <script>
         (function() {{
             function renderMermaid() {{

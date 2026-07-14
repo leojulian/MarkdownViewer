@@ -22,6 +22,7 @@ namespace MarkdownViewer
         private bool _isDarkMode;
         private readonly MarkdownPipeline _pipeline;
         private readonly HistoryManager _historyManager;
+        private readonly FavoritesManager _favoritesManager;
         private static readonly string _mermaidJsContent;
 
         static MainWindow()
@@ -72,6 +73,7 @@ namespace MarkdownViewer
                 .Build();
 
             _historyManager = new HistoryManager();
+            _favoritesManager = new FavoritesManager();
             Loaded += MainWindow_Loaded;
             Closing += MainWindow_Closing;
             KeyDown += MainWindow_KeyDown;
@@ -90,6 +92,10 @@ namespace MarkdownViewer
 
             // 还原最近一次打开的文件夹
             RestoreLastSession();
+
+            // 加载收藏列表
+            _favoritesManager.Load();
+            RefreshFavoritesList();
         }
 
         private void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
@@ -104,6 +110,8 @@ namespace MarkdownViewer
                 _historyManager.AddEntry(_currentFolderPath, _currentFilePath);
                 _historyManager.Save();
             }
+
+            _favoritesManager.Save();
         }
 
         #region 历史记录
@@ -401,6 +409,7 @@ namespace MarkdownViewer
                 FilePathText.Text = filePath;
                 StatusText.Text = $"已加载: {Path.GetFileName(filePath)}";
                 Title = $"{Path.GetFileName(filePath)} - Markdown 查看器";
+                UpdateFavButton();
             }
             catch (Exception ex)
             {
@@ -1029,6 +1038,96 @@ namespace MarkdownViewer
         }
         #endregion
 
+        #region 收藏
+        private void ToggleFavorite_Click(object sender, RoutedEventArgs e)
+        {
+            if (string.IsNullOrEmpty(_currentFilePath) || !File.Exists(_currentFilePath))
+                return;
+
+            if (_favoritesManager.IsFavorite(_currentFilePath))
+                RemoveFavorite(_currentFilePath);
+            else
+                AddFavorite(_currentFilePath);
+        }
+
+        private void AddFavorite(string filePath)
+        {
+            _favoritesManager.Add(filePath);
+            RefreshFavoritesList();
+            UpdateFavButton();
+        }
+
+        private void RemoveFavorite(string filePath)
+        {
+            _favoritesManager.Remove(filePath);
+            RefreshFavoritesList();
+            UpdateFavButton();
+        }
+
+        private void TreeContextAddFav_Click(object sender, RoutedEventArgs e)
+        {
+            if (FileTreeView.SelectedItem is TreeViewItem item && item.Tag is string path && File.Exists(path))
+                AddFavorite(path);
+        }
+
+        private void TreeContextRemoveFav_Click(object sender, RoutedEventArgs e)
+        {
+            if (FileTreeView.SelectedItem is TreeViewItem item && item.Tag is string path && File.Exists(path))
+                RemoveFavorite(path);
+        }
+
+        private void FavContextRemove_Click(object sender, RoutedEventArgs e)
+        {
+            if (FavoritesList.SelectedItem is FavItem fav)
+                RemoveFavorite(fav.FilePath);
+        }
+
+        private void FavoritesHeader_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            FavoritesList.Visibility = FavoritesList.Visibility == Visibility.Collapsed
+                ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private void FavoritesList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (FavoritesList.SelectedItem is FavItem fav && File.Exists(fav.FilePath))
+                LoadMarkdownFile(fav.FilePath);
+        }
+
+        private void RefreshFavoritesList()
+        {
+            var favs = _favoritesManager.GetAll().Where(f => File.Exists(f)).ToList();
+            FavoritesList.Items.Clear();
+
+            if (favs.Count == 0)
+            {
+                FavoritesHeader.Visibility = Visibility.Collapsed;
+                FavoritesList.Visibility = Visibility.Collapsed;
+                FavButton.Content = "⭐ 收藏";
+                return;
+            }
+
+            FavoritesHeader.Visibility = Visibility.Visible;
+            FavoritesList.Visibility = Visibility.Visible;
+            FavCountText.Text = $"{favs.Count} 个";
+
+            foreach (var f in favs)
+            {
+                FavoritesList.Items.Add(new FavItem { FilePath = f, DisplayName = Path.GetFileName(f) });
+            }
+
+            UpdateFavButton();
+        }
+
+        private void UpdateFavButton()
+        {
+            if (!string.IsNullOrEmpty(_currentFilePath) && _favoritesManager.IsFavorite(_currentFilePath))
+                FavButton.Content = "⭐ 已收藏";
+            else
+                FavButton.Content = "⭐ 收藏";
+        }
+        #endregion
+
         #region 关于
         private void About_Click(object sender, RoutedEventArgs e)
         {
@@ -1130,6 +1229,67 @@ namespace MarkdownViewer
         {
             return _entries.FirstOrDefault();
         }
+    }
+    #endregion
+
+    #region 收藏管理
+    internal class FavItem
+    {
+        public string FilePath { get; set; } = "";
+        public string DisplayName { get; set; } = "";
+    }
+
+    internal class FavoritesManager
+    {
+        private readonly string _favFile;
+        private HashSet<string> _favorites;
+
+        public FavoritesManager()
+        {
+            var exeDir = AppDomain.CurrentDomain.BaseDirectory;
+            var historyDir = Path.Combine(exeDir, "History");
+            _favFile = Path.Combine(historyDir, "favorites.json");
+            _favorites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        public void Load()
+        {
+            try
+            {
+                if (File.Exists(_favFile))
+                {
+                    var json = File.ReadAllText(_favFile, Encoding.UTF8);
+                    var list = JsonSerializer.Deserialize<List<string>>(json);
+                    _favorites = new HashSet<string>(list ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
+                }
+            }
+            catch
+            {
+                _favorites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            }
+        }
+
+        public void Save()
+        {
+            try
+            {
+                var dir = Path.GetDirectoryName(_favFile);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                    Directory.CreateDirectory(dir);
+                var list = _favorites.ToList();
+                var json = JsonSerializer.Serialize(list, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(_favFile, json, Encoding.UTF8);
+            }
+            catch { }
+        }
+
+        public bool IsFavorite(string filePath) => _favorites.Contains(filePath);
+
+        public void Add(string filePath) => _favorites.Add(filePath);
+
+        public void Remove(string filePath) => _favorites.Remove(filePath);
+
+        public List<string> GetAll() => _favorites.ToList();
     }
     #endregion
 }

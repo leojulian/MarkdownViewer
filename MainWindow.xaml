@@ -50,6 +50,8 @@
             <Button Content="+" Click="ZoomIn_Click" Padding="8,3" FontSize="14"/>
             <Separator/>
             <Button Content="深色模式" Click="ToggleDarkMode_Click" Padding="8,3"/>
+            <Separator/>
+            <Button x:Name="FavButton" Content="⭐ 收藏" Click="ToggleFavorite_Click" Padding="8,3"/>
         </ToolBar>
 
         <!-- 主区域: 左侧文件列表 + 右侧渲染区 -->
@@ -65,11 +67,48 @@
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
-                    <!-- 标题栏 -->
-                    <Border Grid.Row="0" Background="#f0f0f0" Padding="10,8" BorderBrush="#ddd" BorderThickness="0,0,0,1">
+                    <!-- 收藏标题栏 -->
+                    <Border x:Name="FavoritesHeader" Grid.Row="0" Background="#fafafa" Padding="10,6" BorderBrush="#ddd" BorderThickness="0,0,0,1"
+                            MouseLeftButtonDown="FavoritesHeader_Click" Cursor="Hand" Visibility="Collapsed">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="⭐ 收藏" FontWeight="SemiBold" VerticalAlignment="Center" FontSize="12"/>
+                            <TextBlock Grid.Column="1" x:Name="FavCountText" Text="" FontSize="11" Foreground="#888" VerticalAlignment="Center"/>
+                        </Grid>
+                    </Border>
+
+                    <!-- 收藏列表 -->
+                    <ListBox x:Name="FavoritesList" Grid.Row="1" 
+                             SelectionChanged="FavoritesList_SelectionChanged"
+                             Background="White" BorderThickness="0,0,0,1" BorderBrush="#ddd"
+                             MaxHeight="200" Visibility="Collapsed"
+                             VirtualizingPanel.ScrollUnit="Pixel">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="FontSize" Value="12"/>
+                                <Setter Property="Padding" Value="10,4"/>
+                                <Setter Property="Foreground" Value="#333"/>
+                                <Setter Property="ContextMenu">
+                                    <Setter.Value>
+                                        <ContextMenu>
+                                            <MenuItem Header="取消收藏" Click="FavContextRemove_Click" FontSize="12"/>
+                                        </ContextMenu>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                    </ListBox>
+
+                    <!-- 文件夹标题栏 -->
+                    <Border Grid.Row="2" Background="#f0f0f0" Padding="10,8" BorderBrush="#ddd" BorderThickness="0,0,0,1">
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
@@ -81,7 +120,7 @@
                     </Border>
 
                     <!-- TreeView -->
-                    <TreeView x:Name="FileTreeView" Grid.Row="1" 
+                    <TreeView x:Name="FileTreeView" Grid.Row="3" 
                               SelectedItemChanged="FileTreeView_SelectedItemChanged"
                               Background="White" BorderThickness="0" Padding="4,4">
                         <TreeView.ItemContainerStyle>
@@ -90,6 +129,14 @@
                                 <Setter Property="Foreground" Value="#333"/>
                                 <Setter Property="FontSize" Value="13"/>
                                 <Setter Property="Padding" Value="2,1"/>
+                                <Setter Property="ContextMenu">
+                                    <Setter.Value>
+                                        <ContextMenu>
+                                            <MenuItem Header="⭐ 添加到收藏" Click="TreeContextAddFav_Click" FontSize="12"/>
+                                            <MenuItem Header="取消收藏" Click="TreeContextRemoveFav_Click" FontSize="12"/>
+                                        </ContextMenu>
+                                    </Setter.Value>
+                                </Setter>
                             </Style>
                         </TreeView.ItemContainerStyle>
                     </TreeView>

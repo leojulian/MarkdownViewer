@@ -9,6 +9,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using Markdig;
+using Markdig.Syntax;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Win32;
 
@@ -214,6 +215,9 @@ namespace MarkdownViewer
                         break;
                     case Key.D:
                         ToggleDarkMode_Click(sender, e);
+                        break;
+                    case Key.T:
+                        ToggleToc_Click(sender, e);
                         break;
                     case Key.F:
                         ShowSearchBar();
@@ -430,6 +434,7 @@ namespace MarkdownViewer
             {
                 var markdown = File.ReadAllText(filePath, Encoding.UTF8);
                 var html = Markdig.Markdown.ToHtml(markdown, _pipeline);
+                BuildToc(markdown);
                 var fullHtml = WrapHtml(html, Path.GetDirectoryName(filePath));
 
                 webView.NavigateToString(fullHtml);
@@ -1215,6 +1220,112 @@ namespace MarkdownViewer
                 FavButton.Content = "⭐ 已收藏";
             else
                 FavButton.Content = "⭐ 收藏";
+        }
+        #endregion
+
+        #region 目录
+        private class TocItem
+        {
+            public string Id { get; set; } = "";
+            public string Text { get; set; } = "";
+            public int Level { get; set; }
+        }
+
+        private void ToggleToc_Click(object sender, RoutedEventArgs e)
+        {
+            if (TocPanel.Visibility == Visibility.Visible)
+                HideToc();
+            else
+                ShowToc();
+        }
+
+        private void TocClose_Click(object sender, RoutedEventArgs e)
+        {
+            HideToc();
+        }
+
+        private void ShowToc()
+        {
+            TocPanel.Visibility = Visibility.Visible;
+            TocSplitter.Visibility = Visibility.Visible;
+        }
+
+        private void HideToc()
+        {
+            TocPanel.Visibility = Visibility.Collapsed;
+            TocSplitter.Visibility = Visibility.Collapsed;
+        }
+
+        private void BuildToc(string markdown)
+        {
+            TocTreeView.Items.Clear();
+            try
+            {
+                var doc = Markdig.Markdown.Parse(markdown, _pipeline);
+                var headings = doc.Descendants<Markdig.Syntax.HeadingBlock>().ToList();
+                if (headings.Count == 0) return;
+
+                // 用栈构建层级
+                var stack = new Stack<(TreeViewItem node, int level)>();
+
+                foreach (var h in headings)
+                {
+                    var text = h.Inline?.FirstChild?.ToString() ?? "";
+                    if (string.IsNullOrWhiteSpace(text)) continue;
+
+                    var id = GenerateHeadingId(text);
+                    var item = new TreeViewItem
+                    {
+                        Header = text,
+                        Tag = id,
+                        FontSize = 14 - h.Level  // h1=13, h2=12, h3=11...
+                    };
+
+                    // 找到合适的父节点
+                    while (stack.Count > 0 && stack.Peek().level >= h.Level)
+                        stack.Pop();
+
+                    if (stack.Count == 0)
+                    {
+                        TocTreeView.Items.Add(item);
+                    }
+                    else
+                    {
+                        stack.Peek().node.Items.Add(item);
+                    }
+                    stack.Push((item, h.Level));
+                }
+            }
+            catch { }
+        }
+
+        private static string GenerateHeadingId(string text)
+        {
+            var sb = new StringBuilder();
+            foreach (var c in text)
+            {
+                if (char.IsLetterOrDigit(c) || c == '-' || c == '_')
+                    sb.Append(char.ToLowerInvariant(c));
+                else if (c == ' ')
+                    sb.Append('-');
+            }
+            var id = sb.ToString();
+            if (id.Length > 0 && char.IsDigit(id[0]))
+                id = "section-" + id;
+            return id;
+        }
+
+        private async void TocTreeView_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
+        {
+            if (e.NewValue is TreeViewItem item && item.Tag is string id && webView.CoreWebView2 != null)
+            {
+                try
+                {
+                    await webView.CoreWebView2.ExecuteScriptAsync(
+                        $"document.getElementById('{id}')?.scrollIntoView({{ behavior:'auto', block:'start' }});");
+                }
+                catch { }
+            }
         }
         #endregion
 

@@ -38,6 +38,8 @@
                 <MenuItem Header="重置缩放(_0)" Click="ZoomReset_Click" InputGestureText="Ctrl+0"/>
                 <Separator/>
                 <MenuItem Header="切换深色模式(_D)" Click="ToggleDarkMode_Click" InputGestureText="Ctrl+D"/>
+                <Separator/>
+                <MenuItem Header="显示目录(_T)" Click="ToggleToc_Click" InputGestureText="Ctrl+T"/>
             </MenuItem>
             <MenuItem Header="帮助(_H)">
                 <MenuItem Header="关于(_A)" Click="About_Click"/>
@@ -55,6 +57,7 @@
             <Button Content="+" Click="ZoomIn_Click" Padding="8,3" FontSize="14"/>
             <Separator/>
             <Button Content="深色模式" Click="ToggleDarkMode_Click" Padding="8,3"/>
+            <Button Content="📑 目录" Click="ToggleToc_Click" Padding="8,3"/>
             <Separator/>
             <Button x:Name="FavButton" Content="⭐ 收藏" Click="ToggleFavorite_Click" Padding="8,3"/>
         </ToolBar>
@@ -147,7 +150,56 @@
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <wv2:WebView2 x:Name="webView" Grid.Row="0" />
+                <!-- 渲染区 + 目录面板 -->
+                <Grid Grid.Row="0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <wv2:WebView2 x:Name="webView" Grid.Column="0" />
+
+                    <GridSplitter x:Name="TocSplitter" Grid.Column="1"
+                                  Width="5" HorizontalAlignment="Center"
+                                  Background="Transparent" Cursor="SizeWE"
+                                  Visibility="Collapsed"/>
+
+                    <Border x:Name="TocPanel" Grid.Column="2"
+                            BorderBrush="#ddd" BorderThickness="1,0,0,0"
+                            Background="White" Visibility="Collapsed"
+                            MinWidth="150" Width="220">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <Border Grid.Row="0" Background="#f5f5f5" Padding="10,8" BorderBrush="#ddd" BorderThickness="0,0,0,1">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="📑 目录" FontWeight="SemiBold" VerticalAlignment="Center" FontSize="12"/>
+                                    <Button Grid.Column="1" Content="✕" Click="TocClose_Click"
+                                            Padding="4,1" FontSize="11" Background="Transparent" BorderThickness="0" Foreground="#999"/>
+                                </Grid>
+                            </Border>
+                            <TreeView x:Name="TocTreeView" Grid.Row="1"
+                                      SelectedItemChanged="TocTreeView_SelectedItemChanged"
+                                      BorderThickness="0" Padding="4,2">
+                                <TreeView.ItemContainerStyle>
+                                    <Style TargetType="TreeViewItem">
+                                        <Setter Property="IsExpanded" Value="True"/>
+                                        <Setter Property="FontSize" Value="12"/>
+                                        <Setter Property="Padding" Value="2,1"/>
+                                        <Setter Property="Cursor" Value="Hand"/>
+                                    </Style>
+                                </TreeView.ItemContainerStyle>
+                            </TreeView>
+                        </Grid>
+                    </Border>
+                </Grid>
 
                 <!-- 搜索栏 -->
                 <Border x:Name="SearchBar" Grid.Row="1" Background="#f5f5f5" 

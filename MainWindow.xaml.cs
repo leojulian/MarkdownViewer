@@ -1321,8 +1321,11 @@ namespace MarkdownViewer
             {
                 try
                 {
-                    await webView.CoreWebView2.ExecuteScriptAsync(
-                        $"document.getElementById('{id}')?.scrollIntoView({{ behavior:'auto', block:'start' }});");
+                    var text = (item.Header as string) ?? "";
+                    var escaped = EscapeJs(text);
+                    // 先尝试按 Markdig 生成的 id 找，失败则按文本内容找
+                    var script = $"(function(){{ var h = document.getElementById('{id}'); if(!h){{ var hs = document.querySelectorAll('h1,h2,h3,h4,h5,h6'); for(var i=0;i<hs.length;i++){{ if(hs[i].textContent.trim()==='{escaped}'){{ h=hs[i]; break; }} }} }} if(h){{ h.scrollIntoView({{behavior:'auto',block:'start'}}); }} }})();";
+                    await webView.CoreWebView2.ExecuteScriptAsync(script);
                 }
                 catch { }
             }

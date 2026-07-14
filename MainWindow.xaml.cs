@@ -786,6 +786,7 @@ namespace MarkdownViewer
             {
                 _zoomFactor += 0.1;
                 _configManager.ZoomFactor = _zoomFactor;
+                _configManager.Save();
                 ApplyZoom();
             }
         }
@@ -796,6 +797,7 @@ namespace MarkdownViewer
             {
                 _zoomFactor -= 0.1;
                 _configManager.ZoomFactor = _zoomFactor;
+                _configManager.Save();
                 ApplyZoom();
             }
         }
@@ -804,6 +806,7 @@ namespace MarkdownViewer
         {
             _zoomFactor = 1.0;
             _configManager.ZoomFactor = _zoomFactor;
+            _configManager.Save();
             ApplyZoom();
         }
 
@@ -822,6 +825,7 @@ namespace MarkdownViewer
         {
             _isDarkMode = !_isDarkMode;
             _configManager.IsDarkMode = _isDarkMode;
+            _configManager.Save();
             if (!string.IsNullOrEmpty(_currentFilePath))
             {
                 Reload_Click(sender, e);
@@ -1259,6 +1263,7 @@ namespace MarkdownViewer
             var visible = MainToolBar.Visibility != Visibility.Visible;
             MainToolBar.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
             _configManager.IsToolbarVisible = visible;
+            _configManager.Save();
         }
 
         private void TocClose_Click(object sender, RoutedEventArgs e)
@@ -1271,6 +1276,7 @@ namespace MarkdownViewer
             TocPanel.Visibility = Visibility.Visible;
             TocSplitter.Visibility = Visibility.Visible;
             _configManager.IsTocVisible = true;
+            _configManager.Save();
         }
 
         private void HideToc()
@@ -1278,6 +1284,7 @@ namespace MarkdownViewer
             TocPanel.Visibility = Visibility.Collapsed;
             TocSplitter.Visibility = Visibility.Collapsed;
             _configManager.IsTocVisible = false;
+            _configManager.Save();
         }
 
         private void BuildToc(string markdown)

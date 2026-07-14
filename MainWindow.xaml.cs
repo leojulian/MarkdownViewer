@@ -65,18 +65,6 @@ namespace MarkdownViewer
         public MainWindow()
         {
             InitializeComponent();
-
-            // 设置窗口图标（避免 XAML 资源路径大小写问题）
-            using var iconStream = typeof(MainWindow).Assembly
-                .GetManifestResourceStream("MarkdownViewer.Assets.app_icon.png");
-            if (iconStream != null)
-            {
-                var decoder = new System.Windows.Media.Imaging.PngBitmapDecoder(
-                    iconStream, System.Windows.Media.Imaging.BitmapCreateOptions.PreservePixelFormat,
-                    System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
-                Icon = decoder.Frames[0];
-            }
-
             _pipeline = new MarkdownPipelineBuilder()
                 .UseAdvancedExtensions()
                 .UsePipeTables()

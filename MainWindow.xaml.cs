@@ -968,11 +968,14 @@ namespace MarkdownViewer
         #endregion
 
         #region 搜索
+        private int _searchIndex;
+
         private void ShowSearchBar()
         {
             SearchBar.Visibility = Visibility.Visible;
             SearchBox.Focus();
             SearchBox.SelectAll();
+            _searchIndex = 0;
         }
 
         private void CloseSearchBar()
@@ -980,10 +983,12 @@ namespace MarkdownViewer
             SearchBar.Visibility = Visibility.Collapsed;
             SearchBox.Text = "";
             ClearSearchHighlight();
+            _searchIndex = 0;
         }
 
         private async void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
         {
+            _searchIndex = 0;
             await ExecuteFind(true);
         }
 
@@ -1032,13 +1037,13 @@ namespace MarkdownViewer
             try
             {
                 var escaped = EscapeJs(text);
-                // 用 window.find 导航
                 var backwards = (!forward).ToString().ToLower();
                 var findScript = $"window.find('{escaped}', false, {backwards}, true, false, true, false);";
                 var found = await webView.CoreWebView2.ExecuteScriptAsync(findScript);
-                if (found?.Trim('"') != "true")
+                var wasFound = found?.Trim('"') == "true";
+
+                if (!wasFound)
                 {
-                    // 从头/尾重新搜索
                     var reset = forward
                         ? $"window.getSelection().removeAllRanges(); window.find('{escaped}', false, false, true, false, true, false);"
                         : $"window.getSelection().removeAllRanges(); window.find('{escaped}', false, true, true, false, true, false);";
@@ -1048,10 +1053,28 @@ namespace MarkdownViewer
                 // 统计总数
                 var countScript = $"(function(){{ try {{ var m = document.body.textContent.match(new RegExp('{escaped}','gi')); return (m?m.length:0).toString(); }} catch(e) {{ return '0'; }} }})();";
                 var countResult = await webView.CoreWebView2.ExecuteScriptAsync(countScript);
-                if (int.TryParse(countResult?.Trim('"'), out var total) && total > 0)
-                    SearchCountText.Text = $"?/{total}";
+                int.TryParse(countResult?.Trim('"'), out var total);
+
+                if (total > 0)
+                {
+                    // 维护当前索引
+                    if (forward)
+                    {
+                        _searchIndex++;
+                        if (_searchIndex > total) _searchIndex = 1;
+                    }
+                    else
+                    {
+                        _searchIndex--;
+                        if (_searchIndex < 1) _searchIndex = total;
+                    }
+                    if (!wasFound) _searchIndex = 1; // 回绕到开头
+                    SearchCountText.Text = $"{_searchIndex}/{total}";
+                }
                 else
+                {
                     SearchCountText.Text = "0/0";
+                }
             }
             catch
             {

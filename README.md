@@ -1,4 +1,4 @@
-# MarkdownViewer
+# <img src="Assets/app_icon.png" width="32" align="left" style="margin-right:8px"> MarkdownViewer
 
 基于 WPF + Markdig + WebView2 的 Markdown 文档查看器，支持文件夹浏览、文档树导航、拖拽打开、历史恢复与文件实时监控。
 

@@ -1076,11 +1076,48 @@ namespace MarkdownViewer
                 RemoveFavorite(path);
         }
 
-        private void FavContextRemove_Click(object sender, RoutedEventArgs e)
+        private void TreeItem_RightClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
-            if (FavoritesList.SelectedItem is FavItem fav)
-                RemoveFavorite(fav.FilePath);
+            if (sender is TreeViewItem item)
+            {
+                item.IsSelected = true;
+                e.Handled = true;
+
+                var menu = new ContextMenu();
+                if (item.Tag is string path && File.Exists(path))
+                {
+                    if (_favoritesManager.IsFavorite(path))
+                    {
+                        var removeItem = new MenuItem { Header = "取消收藏", FontSize = 12 };
+                        removeItem.Click += (s, args) => RemoveFavorite(path);
+                        menu.Items.Add(removeItem);
+                    }
+                    else
+                    {
+                        var addItem = new MenuItem { Header = "⭐ 添加到收藏", FontSize = 12 };
+                        addItem.Click += (s, args) => AddFavorite(path);
+                        menu.Items.Add(addItem);
+                    }
+                }
+                menu.IsOpen = true;
+            }
         }
+
+        private void FavItem_RightClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            if (sender is ListBoxItem item && item.Content is FavItem fav)
+            {
+                item.IsSelected = true;
+                e.Handled = true;
+
+                var menu = new ContextMenu();
+                var removeItem = new MenuItem { Header = "取消收藏", FontSize = 12 };
+                removeItem.Click += (s, args) => RemoveFavorite(fav.FilePath);
+                menu.Items.Add(removeItem);
+                menu.IsOpen = true;
+            }
+        }
+
 
         private void FavoritesHeader_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {

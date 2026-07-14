@@ -96,13 +96,7 @@
                                 <Setter Property="FontSize" Value="12"/>
                                 <Setter Property="Padding" Value="10,4"/>
                                 <Setter Property="Foreground" Value="#333"/>
-                                <Setter Property="ContextMenu">
-                                    <Setter.Value>
-                                        <ContextMenu>
-                                            <MenuItem Header="取消收藏" Click="FavContextRemove_Click" FontSize="12"/>
-                                        </ContextMenu>
-                                    </Setter.Value>
-                                </Setter>
+                                <EventSetter Event="MouseRightButtonUp" Handler="FavItem_RightClick"/>
                             </Style>
                         </ListBox.ItemContainerStyle>
                     </ListBox>
@@ -129,14 +123,7 @@
                                 <Setter Property="Foreground" Value="#333"/>
                                 <Setter Property="FontSize" Value="13"/>
                                 <Setter Property="Padding" Value="2,1"/>
-                                <Setter Property="ContextMenu">
-                                    <Setter.Value>
-                                        <ContextMenu>
-                                            <MenuItem Header="⭐ 添加到收藏" Click="TreeContextAddFav_Click" FontSize="12"/>
-                                            <MenuItem Header="取消收藏" Click="TreeContextRemoveFav_Click" FontSize="12"/>
-                                        </ContextMenu>
-                                    </Setter.Value>
-                                </Setter>
+                                <EventSetter Event="PreviewMouseRightButtonDown" Handler="TreeItem_RightClick"/>
                             </Style>
                         </TreeView.ItemContainerStyle>
                     </TreeView>

@@ -90,6 +90,7 @@
                              SelectionChanged="FavoritesList_SelectionChanged"
                              Background="White" BorderThickness="0,0,0,1" BorderBrush="#ddd"
                              MaxHeight="200" Visibility="Collapsed"
+                             DisplayMemberPath="DisplayName"
                              VirtualizingPanel.ScrollUnit="Pixel">
                         <ListBox.ItemContainerStyle>
                             <Style TargetType="ListBoxItem">
@@ -116,6 +117,7 @@
                     <!-- TreeView -->
                     <TreeView x:Name="FileTreeView" Grid.Row="3" 
                               SelectedItemChanged="FileTreeView_SelectedItemChanged"
+                              PreviewMouseRightButtonDown="FileTreeView_RightClick"
                               Background="White" BorderThickness="0" Padding="4,4">
                         <TreeView.ItemContainerStyle>
                             <Style TargetType="TreeViewItem">
@@ -123,7 +125,6 @@
                                 <Setter Property="Foreground" Value="#333"/>
                                 <Setter Property="FontSize" Value="13"/>
                                 <Setter Property="Padding" Value="2,1"/>
-                                <EventSetter Event="PreviewMouseRightButtonDown" Handler="TreeItem_RightClick"/>
                             </Style>
                         </TreeView.ItemContainerStyle>
                     </TreeView>

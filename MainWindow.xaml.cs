@@ -1064,42 +1064,35 @@ namespace MarkdownViewer
             UpdateFavButton();
         }
 
-        private void TreeContextAddFav_Click(object sender, RoutedEventArgs e)
+        private void FileTreeView_RightClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
-            if (FileTreeView.SelectedItem is TreeViewItem item && item.Tag is string path && File.Exists(path))
-                AddFavorite(path);
-        }
+            // 找到被右击的 TreeViewItem
+            var dep = (DependencyObject)e.OriginalSource;
+            while (dep != null && dep is not TreeViewItem)
+                dep = VisualTreeHelper.GetParent(dep);
 
-        private void TreeContextRemoveFav_Click(object sender, RoutedEventArgs e)
-        {
-            if (FileTreeView.SelectedItem is TreeViewItem item && item.Tag is string path && File.Exists(path))
-                RemoveFavorite(path);
-        }
-
-        private void TreeItem_RightClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
-        {
-            if (sender is TreeViewItem item)
+            if (dep is TreeViewItem item)
             {
                 item.IsSelected = true;
                 e.Handled = true;
 
-                var menu = new ContextMenu();
                 if (item.Tag is string path && File.Exists(path))
                 {
+                    var menu = new ContextMenu();
                     if (_favoritesManager.IsFavorite(path))
                     {
-                        var removeItem = new MenuItem { Header = "取消收藏", FontSize = 12 };
-                        removeItem.Click += (s, args) => RemoveFavorite(path);
-                        menu.Items.Add(removeItem);
+                        var mi = new MenuItem { Header = "取消收藏", FontSize = 12 };
+                        mi.Click += (s, args) => RemoveFavorite(path);
+                        menu.Items.Add(mi);
                     }
                     else
                     {
-                        var addItem = new MenuItem { Header = "⭐ 添加到收藏", FontSize = 12 };
-                        addItem.Click += (s, args) => AddFavorite(path);
-                        menu.Items.Add(addItem);
+                        var mi = new MenuItem { Header = "⭐ 添加到收藏", FontSize = 12 };
+                        mi.Click += (s, args) => AddFavorite(path);
+                        menu.Items.Add(mi);
                     }
+                    menu.IsOpen = true;
                 }
-                menu.IsOpen = true;
             }
         }
 

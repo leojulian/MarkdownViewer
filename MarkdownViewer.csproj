@@ -15,8 +15,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="mermaid.min.js" />
-    <Resource Include="app_icon.png" />
+    <EmbeddedResource Include="Assets\mermaid.min.js" />
+    <Resource Include="Assets\app_icon.ico" />
   </ItemGroup>
 
 </Project>

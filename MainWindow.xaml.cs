@@ -50,7 +50,7 @@ namespace MarkdownViewer
                     return File.ReadAllText(filePath);
 
                 using var stream = typeof(MainWindow).Assembly
-                    .GetManifestResourceStream("MarkdownViewer.mermaid.min.js");
+                    .GetManifestResourceStream("MarkdownViewer.Assets.mermaid.min.js");
                 if (stream == null) return "";
                 using var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write);
                 stream.CopyTo(fs);

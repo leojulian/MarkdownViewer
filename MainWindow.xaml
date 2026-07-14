@@ -7,7 +7,7 @@
         mc:Ignorable="d"
         Title="Markdown 查看器" Height="720" Width="1080"
         WindowStartupLocation="CenterScreen"
-        Icon="app_icon.ico"
+        Icon="/Assets/app_icon.ico"
         AllowDrop="True"
         DragEnter="Window_DragEnter"
         Drop="Window_Drop">

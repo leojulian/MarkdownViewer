@@ -1032,70 +1032,26 @@ namespace MarkdownViewer
             try
             {
                 var escaped = EscapeJs(text);
-                var script = $@"
-(function() {{
-    if (!window.__mvSearch || window.__mvSearch.text !== '{escaped}') {{
-        // 清除旧高亮
-        document.querySelectorAll('.__mv_highlight').forEach(function(el) {{
-            var parent = el.parentNode;
-            parent.replaceChild(document.createTextNode(el.textContent), el);
-            parent.normalize();
-        }});
-        // 全文搜索
-        var regex = new RegExp('{escaped}'.replace(/[.*+?^${{}}()|[\]\\]/g, '\\$&'), 'gi');
-        var body = document.body;
-        var walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, null, false);
-        var textNodes = [];
-        var node;
-        while (node = walker.nextNode()) textNodes.push(node);
-        var matches = [];
-        textNodes.forEach(function(tn) {{
-            var txt = tn.textContent;
-            var m; regex.lastIndex = 0;
-            var fragments = []; var lastIdx = 0;
-            while ((m = regex.exec(txt)) !== null) {{
-                fragments.push({{ node: tn, start: m.index, end: m.index + m[0].length }});
-            }}
-            // 从后往前替换避免索引偏移
-            for (var i = fragments.length - 1; i >= 0; i--) {{
-                var f = fragments[i];
-                var after = tn.splitText(f.end);
-                var mid = tn.splitText(f.start);
-                var mark = document.createElement('mark');
-                mark.className = '__mv_highlight';
-                mark.style.backgroundColor = '#ff0';
-                mark.style.color = '#000';
-                mark.textContent = mid.textContent;
-                matches.push(mark);
-                tn.parentNode.replaceChild(mark, mid);
-                tn = after;
-            }}
-        }});
-        window.__mvSearch = {{ text: '{escaped}', matches: matches, index: -1 }};
-    }}
-    var sr = window.__mvSearch;
-    if (sr.matches.length === 0) return JSON.stringify({{ cur: 0, total: 0 }});
-    // 更新索引
-    if (forward) sr.index = (sr.index + 1) % sr.matches.length;
-    else {{ sr.index--; if (sr.index < 0) sr.index = sr.matches.length - 1; }}
-    // 高亮当前
-    sr.matches.forEach(function(m, i) {{
-        m.style.backgroundColor = (i === sr.index) ? '#f90' : '#ff0';
-    }});
-    // 滚动到当前
-    sr.matches[sr.index].scrollIntoView({{ behavior: 'auto', block: 'center' }});
-    return JSON.stringify({{ cur: sr.index + 1, total: sr.matches.length }});
-}})();";
-                var result = await webView.CoreWebView2.ExecuteScriptAsync(script);
-                var json = result?.Trim('"');
-                if (!string.IsNullOrEmpty(json))
+                // 用 window.find 导航
+                var backwards = (!forward).ToString().ToLower();
+                var findScript = $"window.find('{escaped}', false, {backwards}, true, false, true, false);";
+                var found = await webView.CoreWebView2.ExecuteScriptAsync(findScript);
+                if (found?.Trim('"') != "true")
                 {
-                    var data = System.Text.Json.JsonSerializer.Deserialize<SearchResult>(json);
-                    if (data != null && data.total > 0)
-                        SearchCountText.Text = $"{data.cur}/{data.total}";
-                    else
-                        SearchCountText.Text = "0/0";
+                    // 从头/尾重新搜索
+                    var reset = forward
+                        ? $"window.getSelection().removeAllRanges(); window.find('{escaped}', false, false, true, false, true, false);"
+                        : $"window.getSelection().removeAllRanges(); window.find('{escaped}', false, true, true, false, true, false);";
+                    await webView.CoreWebView2.ExecuteScriptAsync(reset);
                 }
+
+                // 统计总数
+                var countScript = $"(function(){{ try {{ var m = document.body.textContent.match(new RegExp('{escaped}','gi')); return (m?m.length:0).toString(); }} catch(e) {{ return '0'; }} }})();";
+                var countResult = await webView.CoreWebView2.ExecuteScriptAsync(countScript);
+                if (int.TryParse(countResult?.Trim('"'), out var total) && total > 0)
+                    SearchCountText.Text = $"?/{total}";
+                else
+                    SearchCountText.Text = "0/0";
             }
             catch
             {
@@ -1103,21 +1059,12 @@ namespace MarkdownViewer
             }
         }
 
-        private class SearchResult { public int cur { get; set; } public int total { get; set; } }
-
         private async void ClearSearchHighlight()
         {
             if (webView.CoreWebView2 == null) return;
             try
             {
-                await webView.CoreWebView2.ExecuteScriptAsync(@"
-document.querySelectorAll('.__mv_highlight').forEach(function(el) {
-    var parent = el.parentNode;
-    parent.replaceChild(document.createTextNode(el.textContent), el);
-    parent.normalize();
-});
-window.__mvSearch = null;
-window.getSelection().removeAllRanges();");
+                await webView.CoreWebView2.ExecuteScriptAsync("window.getSelection().removeAllRanges();");
             }
             catch { }
         }

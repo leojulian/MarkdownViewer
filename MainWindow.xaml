@@ -26,7 +26,9 @@
                 <Separator/>
                 <MenuItem Header="重新加载(_R)" Click="Reload_Click" InputGestureText="F5"/>
                 <Separator/>
-                <MenuItem x:Name="HistoryMenu" Header="历史记录(_H)" SubmenuOpened="HistoryMenu_SubmenuOpened"/>
+                <MenuItem x:Name="HistoryMenu" Header="历史记录(_H)" SubmenuOpened="HistoryMenu_SubmenuOpened">
+                    <MenuItem Header="(加载中...)" IsEnabled="False"/>
+                </MenuItem>
                 <Separator/>
                 <MenuItem Header="退出(_X)" Click="Exit_Click"/>
             </MenuItem>

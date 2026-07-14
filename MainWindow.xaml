@@ -169,7 +169,7 @@
                     <Border x:Name="TocPanel" Grid.Column="2"
                             BorderBrush="#ddd" BorderThickness="1,0,0,0"
                             Background="White" Visibility="Collapsed"
-                            MinWidth="150" Width="220">
+                            MinWidth="150">
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>

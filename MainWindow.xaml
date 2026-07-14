@@ -186,10 +186,14 @@
         <!-- 状态栏 -->
         <StatusBar Grid.Row="2">
             <StatusBarItem>
-                <TextBlock x:Name="StatusText" Text="就绪"/>
+                <TextBox x:Name="StatusText" Text="就绪" IsReadOnly="True"
+                         BorderThickness="0" Background="Transparent" Padding="0"
+                         Foreground="{DynamicResource {x:Static SystemColors.ControlTextBrushKey}}"/>
             </StatusBarItem>
             <StatusBarItem HorizontalAlignment="Right">
-                <TextBlock x:Name="FilePathText" Text=""/>
+                <TextBox x:Name="FilePathText" Text="" IsReadOnly="True"
+                         BorderThickness="0" Background="Transparent" Padding="0"
+                         Foreground="{DynamicResource {x:Static SystemColors.ControlTextBrushKey}}"/>
             </StatusBarItem>
         </StatusBar>
     </Grid>

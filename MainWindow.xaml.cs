@@ -118,6 +118,7 @@ namespace MarkdownViewer
             _configManager.ZoomFactor = _zoomFactor;
             _configManager.IsDarkMode = _isDarkMode;
             _configManager.IsTocVisible = TocPanel.Visibility == Visibility.Visible;
+            _configManager.IsToolbarVisible = MainToolBar.Visibility == Visibility.Visible;
             _configManager.Save();
         }
 
@@ -1253,6 +1254,13 @@ namespace MarkdownViewer
                 ShowToc();
         }
 
+        private void ToggleToolbar_Click(object sender, RoutedEventArgs e)
+        {
+            var visible = MainToolBar.Visibility != Visibility.Visible;
+            MainToolBar.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+            _configManager.IsToolbarVisible = visible;
+        }
+
         private void TocClose_Click(object sender, RoutedEventArgs e)
         {
             HideToc();
@@ -1361,6 +1369,7 @@ namespace MarkdownViewer
                 TocPanel.Visibility = Visibility.Visible;
                 TocSplitter.Visibility = Visibility.Visible;
             }
+            MainToolBar.Visibility = c.IsToolbarVisible ? Visibility.Visible : Visibility.Collapsed;
         }
 
         #region 关于
@@ -1602,6 +1611,7 @@ namespace MarkdownViewer
         public double ZoomFactor { get; set; } = 1.0;
         public bool IsDarkMode { get; set; }
         public bool IsTocVisible { get; set; }
+        public bool IsToolbarVisible { get; set; } = true;
 
         public ConfigManager()
         {
@@ -1622,6 +1632,7 @@ namespace MarkdownViewer
                         ZoomFactor = data.ZoomFactor;
                         IsDarkMode = data.IsDarkMode;
                         IsTocVisible = data.IsTocVisible;
+                        IsToolbarVisible = data.IsToolbarVisible;
                     }
                 }
             }

@@ -24,6 +24,7 @@ namespace MarkdownViewer
         private readonly MarkdownPipeline _pipeline;
         private readonly HistoryManager _historyManager;
         private readonly FavoritesManager _favoritesManager;
+        private readonly ConfigManager _configManager;
         private static readonly string _mermaidJsContent;
 
         static MainWindow()
@@ -75,6 +76,7 @@ namespace MarkdownViewer
 
             _historyManager = new HistoryManager();
             _favoritesManager = new FavoritesManager();
+            _configManager = new ConfigManager();
             Loaded += MainWindow_Loaded;
             Closing += MainWindow_Closing;
             KeyDown += MainWindow_KeyDown;
@@ -90,6 +92,10 @@ namespace MarkdownViewer
             // 注入 mermaid.js（避免 NavigateToString 大小限制）
             if (!string.IsNullOrEmpty(_mermaidJsContent))
                 await webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(_mermaidJsContent);
+
+            // 加载并应用 UI 配置
+            _configManager.Load();
+            ApplyConfig();
 
             // 还原最近一次打开的文件夹
             RestoreLastSession();
@@ -109,6 +115,10 @@ namespace MarkdownViewer
             }
 
             _favoritesManager.Save();
+            _configManager.ZoomFactor = _zoomFactor;
+            _configManager.IsDarkMode = _isDarkMode;
+            _configManager.IsTocVisible = TocPanel.Visibility == Visibility.Visible;
+            _configManager.Save();
         }
 
         #region 历史记录
@@ -774,6 +784,7 @@ namespace MarkdownViewer
             if (_zoomFactor < 3.0)
             {
                 _zoomFactor += 0.1;
+                _configManager.ZoomFactor = _zoomFactor;
                 ApplyZoom();
             }
         }
@@ -783,6 +794,7 @@ namespace MarkdownViewer
             if (_zoomFactor > 0.3)
             {
                 _zoomFactor -= 0.1;
+                _configManager.ZoomFactor = _zoomFactor;
                 ApplyZoom();
             }
         }
@@ -790,6 +802,7 @@ namespace MarkdownViewer
         private void ZoomReset_Click(object sender, RoutedEventArgs e)
         {
             _zoomFactor = 1.0;
+            _configManager.ZoomFactor = _zoomFactor;
             ApplyZoom();
         }
 
@@ -807,6 +820,7 @@ namespace MarkdownViewer
         private void ToggleDarkMode_Click(object sender, RoutedEventArgs e)
         {
             _isDarkMode = !_isDarkMode;
+            _configManager.IsDarkMode = _isDarkMode;
             if (!string.IsNullOrEmpty(_currentFilePath))
             {
                 Reload_Click(sender, e);
@@ -1248,12 +1262,14 @@ namespace MarkdownViewer
         {
             TocPanel.Visibility = Visibility.Visible;
             TocSplitter.Visibility = Visibility.Visible;
+            _configManager.IsTocVisible = true;
         }
 
         private void HideToc()
         {
             TocPanel.Visibility = Visibility.Collapsed;
             TocSplitter.Visibility = Visibility.Collapsed;
+            _configManager.IsTocVisible = false;
         }
 
         private void BuildToc(string markdown)
@@ -1331,6 +1347,21 @@ namespace MarkdownViewer
             }
         }
         #endregion
+
+        private void ApplyConfig()
+        {
+            var c = _configManager;
+            _zoomFactor = c.ZoomFactor;
+            ApplyZoom();
+            _isDarkMode = c.IsDarkMode;
+            if (_isDarkMode && !string.IsNullOrEmpty(_currentFilePath))
+                Reload_Click(this, new RoutedEventArgs());
+            if (c.IsTocVisible)
+            {
+                TocPanel.Visibility = Visibility.Visible;
+                TocSplitter.Visibility = Visibility.Visible;
+            }
+        }
 
         #region 关于
         private void About_Click(object sender, RoutedEventArgs e)
@@ -1559,6 +1590,55 @@ namespace MarkdownViewer
                 Load();
                 _lastLoadTime = writeTime;
             }
+        }
+    }
+    #endregion
+
+    #region UI 配置管理
+    internal class ConfigManager
+    {
+        private readonly string _configFile;
+
+        public double ZoomFactor { get; set; } = 1.0;
+        public bool IsDarkMode { get; set; }
+        public bool IsTocVisible { get; set; }
+
+        public ConfigManager()
+        {
+            var historyDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "History");
+            _configFile = Path.Combine(historyDir, "config.json");
+        }
+
+        public void Load()
+        {
+            try
+            {
+                if (File.Exists(_configFile))
+                {
+                    var json = File.ReadAllText(_configFile, Encoding.UTF8);
+                    var data = JsonSerializer.Deserialize<ConfigManager>(json);
+                    if (data != null)
+                    {
+                        ZoomFactor = data.ZoomFactor;
+                        IsDarkMode = data.IsDarkMode;
+                        IsTocVisible = data.IsTocVisible;
+                    }
+                }
+            }
+            catch { }
+        }
+
+        public void Save()
+        {
+            try
+            {
+                var dir = Path.GetDirectoryName(_configFile);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                    Directory.CreateDirectory(dir);
+                var json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(_configFile, json, Encoding.UTF8);
+            }
+            catch { }
         }
     }
     #endregion

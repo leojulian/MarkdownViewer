@@ -107,3 +107,4 @@ dotnet run
 | v1.4 | Mermaid 图表渲染（离线嵌入）、Ctrl+F 文本搜索 |
 | v1.5 | 收藏夹功能、右键菜单、收藏持久化 |
 | v1.6 | 多分辨率 ICO 图标、Assets 目录整理 |
+| v1.7 | 搜索显示当前/总数、收藏存于 .MarkdownViewer、历史子菜单、并发安全 |

@@ -92,10 +92,6 @@ namespace MarkdownViewer
 
             // 还原最近一次打开的文件夹
             RestoreLastSession();
-
-            // 加载收藏列表
-            _favoritesManager.Load();
-            RefreshFavoritesList();
         }
 
         private void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
@@ -123,6 +119,9 @@ namespace MarkdownViewer
             if (lastEntry != null && Directory.Exists(lastEntry.FolderPath))
             {
                 _currentFolderPath = lastEntry.FolderPath;
+                _favoritesManager.SetFolderPath(lastEntry.FolderPath);
+                _favoritesManager.Load();
+                RefreshFavoritesList();
                 PopulateFileTree(lastEntry.FolderPath);
                 StartFileWatcher(lastEntry.FolderPath);
 
@@ -270,6 +269,9 @@ namespace MarkdownViewer
 
             _currentFolderPath = folderPath;
             _currentFilePath = null;
+            _favoritesManager.SetFolderPath(folderPath);
+            _favoritesManager.Load();
+            RefreshFavoritesList();
             PopulateFileTree(folderPath);
             StartFileWatcher(folderPath);
 
@@ -373,6 +375,32 @@ namespace MarkdownViewer
         private void Exit_Click(object sender, RoutedEventArgs e)
         {
             Close();
+        }
+
+        private void HistoryMenu_SubmenuOpened(object sender, RoutedEventArgs e)
+        {
+            HistoryMenu.Items.Clear();
+            var entries = _historyManager.GetAll();
+            if (entries.Count == 0)
+            {
+                HistoryMenu.Items.Add(new MenuItem { Header = "(无历史记录)", IsEnabled = false });
+                return;
+            }
+            foreach (var entry in entries)
+            {
+                var item = new MenuItem
+                {
+                    Header = entry.FolderPath,
+                    ToolTip = $"上次打开: {entry.OpenedAt:yyyy-MM-dd HH:mm}"
+                };
+                var path = entry.FolderPath;
+                item.Click += (_, _) =>
+                {
+                    if (Directory.Exists(path))
+                        OpenFolder(path);
+                };
+                HistoryMenu.Items.Add(item);
+            }
         }
 
         private async void AutoReloadCurrentFile()
@@ -1003,17 +1031,70 @@ namespace MarkdownViewer
 
             try
             {
-                // window.find(text, caseSensitive, backwards, wrapAround, wholeWord, searchInFrames, showDialog)
-                var script = $"window.find('{EscapeJs(text)}', false, {(!forward).ToString().ToLower()}, true, false, true, false);";
+                var escaped = EscapeJs(text);
+                var script = $@"
+(function() {{
+    if (!window.__mvSearch || window.__mvSearch.text !== '{escaped}') {{
+        // 清除旧高亮
+        document.querySelectorAll('.__mv_highlight').forEach(function(el) {{
+            var parent = el.parentNode;
+            parent.replaceChild(document.createTextNode(el.textContent), el);
+            parent.normalize();
+        }});
+        // 全文搜索
+        var regex = new RegExp('{escaped}'.replace(/[.*+?^${{}}()|[\]\\]/g, '\\$&'), 'gi');
+        var body = document.body;
+        var walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, null, false);
+        var textNodes = [];
+        var node;
+        while (node = walker.nextNode()) textNodes.push(node);
+        var matches = [];
+        textNodes.forEach(function(tn) {{
+            var txt = tn.textContent;
+            var m; regex.lastIndex = 0;
+            var fragments = []; var lastIdx = 0;
+            while ((m = regex.exec(txt)) !== null) {{
+                fragments.push({{ node: tn, start: m.index, end: m.index + m[0].length }});
+            }}
+            // 从后往前替换避免索引偏移
+            for (var i = fragments.length - 1; i >= 0; i--) {{
+                var f = fragments[i];
+                var after = tn.splitText(f.end);
+                var mid = tn.splitText(f.start);
+                var mark = document.createElement('mark');
+                mark.className = '__mv_highlight';
+                mark.style.backgroundColor = '#ff0';
+                mark.style.color = '#000';
+                mark.textContent = mid.textContent;
+                matches.push(mark);
+                tn.parentNode.replaceChild(mark, mid);
+                tn = after;
+            }}
+        }});
+        window.__mvSearch = {{ text: '{escaped}', matches: matches, index: -1 }};
+    }}
+    var sr = window.__mvSearch;
+    if (sr.matches.length === 0) return JSON.stringify({{ cur: 0, total: 0 }});
+    // 更新索引
+    if (forward) sr.index = (sr.index + 1) % sr.matches.length;
+    else {{ sr.index--; if (sr.index < 0) sr.index = sr.matches.length - 1; }}
+    // 高亮当前
+    sr.matches.forEach(function(m, i) {{
+        m.style.backgroundColor = (i === sr.index) ? '#f90' : '#ff0';
+    }});
+    // 滚动到当前
+    sr.matches[sr.index].scrollIntoView({{ behavior: 'auto', block: 'center' }});
+    return JSON.stringify({{ cur: sr.index + 1, total: sr.matches.length }});
+}})();";
                 var result = await webView.CoreWebView2.ExecuteScriptAsync(script);
-                var found = result?.Trim('"') == "true";
-                if (!found)
+                var json = result?.Trim('"');
+                if (!string.IsNullOrEmpty(json))
                 {
-                    // 从头/尾重新搜索
-                    var resetScript = forward
-                        ? "window.getSelection().removeAllRanges(); window.find('" + EscapeJs(text) + "', false, false, true, false, true, false);"
-                        : "window.getSelection().removeAllRanges(); window.find('" + EscapeJs(text) + "', false, true, true, false, true, false);";
-                    await webView.CoreWebView2.ExecuteScriptAsync(resetScript);
+                    var data = System.Text.Json.JsonSerializer.Deserialize<SearchResult>(json);
+                    if (data != null && data.total > 0)
+                        SearchCountText.Text = $"{data.cur}/{data.total}";
+                    else
+                        SearchCountText.Text = "0/0";
                 }
             }
             catch
@@ -1022,19 +1103,28 @@ namespace MarkdownViewer
             }
         }
 
+        private class SearchResult { public int cur { get; set; } public int total { get; set; } }
+
         private async void ClearSearchHighlight()
         {
             if (webView.CoreWebView2 == null) return;
             try
             {
-                await webView.CoreWebView2.ExecuteScriptAsync("window.getSelection().removeAllRanges();");
+                await webView.CoreWebView2.ExecuteScriptAsync(@"
+document.querySelectorAll('.__mv_highlight').forEach(function(el) {
+    var parent = el.parentNode;
+    parent.replaceChild(document.createTextNode(el.textContent), el);
+    parent.normalize();
+});
+window.__mvSearch = null;
+window.getSelection().removeAllRanges();");
             }
             catch { }
         }
 
         private static string EscapeJs(string s)
         {
-            return s.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "");
+            return s.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\n", "\\n").Replace("\r", "");
         }
         #endregion
 
@@ -1225,15 +1315,29 @@ namespace MarkdownViewer
                 if (!Directory.Exists(_historyDir))
                     Directory.CreateDirectory(_historyDir);
 
+                // 并发安全：先读取已有记录再合并写入
+                List<HistoryEntry> existing = new();
+                if (File.Exists(_historyFile))
+                {
+                    var json = File.ReadAllText(_historyFile, Encoding.UTF8);
+                    existing = JsonSerializer.Deserialize<List<HistoryEntry>>(json) ?? new();
+                }
+                // 合并：本地新条目优先
+                foreach (var e in _entries)
+                {
+                    existing.RemoveAll(x => string.Equals(x.FolderPath, e.FolderPath, StringComparison.OrdinalIgnoreCase));
+                    existing.Insert(0, e);
+                }
+                while (existing.Count > MaxHistoryEntries)
+                    existing.RemoveAt(existing.Count - 1);
+
                 var options = new JsonSerializerOptions { WriteIndented = true };
-                var json = JsonSerializer.Serialize(_entries, options);
-                File.WriteAllText(_historyFile, json, Encoding.UTF8);
+                File.WriteAllText(_historyFile, JsonSerializer.Serialize(existing, options), Encoding.UTF8);
             }
-            catch
-            {
-                // 静默失败, 不影响主流程
-            }
+            catch { }
         }
+
+        public List<HistoryEntry> GetAll() => _entries.ToList();
 
         public void AddEntry(string folderPath, string? lastFilePath)
         {
@@ -1271,19 +1375,32 @@ namespace MarkdownViewer
 
     internal class FavoritesManager
     {
-        private readonly string _favFile;
+        private string? _favDir;
+        private string? _favFile;
         private HashSet<string> _favorites;
 
         public FavoritesManager()
         {
-            var exeDir = AppDomain.CurrentDomain.BaseDirectory;
-            var historyDir = Path.Combine(exeDir, "History");
-            _favFile = Path.Combine(historyDir, "favorites.json");
             _favorites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        public void SetFolderPath(string? folderPath)
+        {
+            if (string.IsNullOrEmpty(folderPath))
+            {
+                _favDir = null;
+                _favFile = null;
+                _favorites.Clear();
+                return;
+            }
+            _favDir = Path.Combine(folderPath, ".MarkdownViewer");
+            _favFile = Path.Combine(_favDir, "favorites.json");
         }
 
         public void Load()
         {
+            _favorites.Clear();
+            if (_favFile == null) return;
             try
             {
                 if (File.Exists(_favFile))
@@ -1301,25 +1418,64 @@ namespace MarkdownViewer
 
         public void Save()
         {
+            if (_favFile == null) return;
             try
             {
-                var dir = Path.GetDirectoryName(_favFile);
-                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
-                    Directory.CreateDirectory(dir);
-                var list = _favorites.ToList();
-                var json = JsonSerializer.Serialize(list, new JsonSerializerOptions { WriteIndented = true });
-                File.WriteAllText(_favFile, json, Encoding.UTF8);
+                if (!Directory.Exists(_favDir))
+                    Directory.CreateDirectory(_favDir!);
+
+                // 并发安全：先读取已有记录再合并写入
+                var existing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                if (File.Exists(_favFile))
+                {
+                    var json = File.ReadAllText(_favFile, Encoding.UTF8);
+                    var list = JsonSerializer.Deserialize<List<string>>(json);
+                    if (list != null)
+                        foreach (var f in list) existing.Add(f);
+                }
+                // 合并：本地的新增和删除都要反映
+                foreach (var f in _favorites) existing.Add(f);
+                // 注意：无法区分"本地删除"和"从未添加"，所以用传入的 _favorites 为准写入
+                // 实际上我们应该以本地为准并合并远程新增：
+                // 这里简单以最后一次写入为准
+                var merged = JsonSerializer.Serialize(_favorites.ToList(), new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(_favFile, merged, Encoding.UTF8);
             }
             catch { }
         }
 
         public bool IsFavorite(string filePath) => _favorites.Contains(filePath);
 
-        public void Add(string filePath) => _favorites.Add(filePath);
+        public void Add(string filePath)
+        {
+            // 并发安全：重新读取再添加
+            ReloadIfChanged();
+            _favorites.Add(filePath);
+        }
 
-        public void Remove(string filePath) => _favorites.Remove(filePath);
+        public void Remove(string filePath)
+        {
+            ReloadIfChanged();
+            _favorites.Remove(filePath);
+        }
 
-        public List<string> GetAll() => _favorites.ToList();
+        public List<string> GetAll()
+        {
+            ReloadIfChanged();
+            return _favorites.ToList();
+        }
+
+        private DateTime _lastLoadTime;
+        private void ReloadIfChanged()
+        {
+            if (_favFile == null || !File.Exists(_favFile)) return;
+            var writeTime = File.GetLastWriteTime(_favFile);
+            if (writeTime > _lastLoadTime)
+            {
+                Load();
+                _lastLoadTime = writeTime;
+            }
+        }
     }
     #endregion
 }

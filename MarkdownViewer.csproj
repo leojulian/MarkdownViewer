@@ -11,26 +11,14 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Remove="Assets\app_icon2.ico" />
-    <None Remove="Assets\app_large.ico" />
-    <None Remove="Assets\app_M_trans.ico" />
-    <None Remove="Assets\app_M_vscode.ico" />
-    <None Remove="Assets\icon_M_vscode_trans.png" />
-  </ItemGroup>
-
-  <ItemGroup>
     <PackageReference Include="Markdig" Version="0.37.0" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2277.86" />
   </ItemGroup>
 
   <ItemGroup>
-    <Resource Include="Assets\mermaid.min.js" />
-    <Resource Include="Assets\app_icon.png">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Resource>
-    <Resource Include="Assets\app_icon.ico">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Resource>
+    <EmbeddedResource Include="Assets\mermaid.min.js" />
+    <Resource Include="Assets\app_icon.ico" />
+    <Resource Include="Assets\app_icon.png" />
   </ItemGroup>
 
 </Project>

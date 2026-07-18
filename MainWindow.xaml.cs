@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using Markdig;
@@ -1382,19 +1384,74 @@ namespace MarkdownViewer
         #region 关于
         private void About_Click(object sender, RoutedEventArgs e)
         {
-            MessageBox.Show(
-                "Markdown 查看器 v1.3\n\n" +
-                "基于 WPF + Markdig + WebView2 构建\n" +
-                "支持标准 Markdown 及扩展语法\n\n" +
-                "功能:\n" +
-                "• 文件夹浏览与文档树\n" +
-                "• 拖拽文件/文件夹打开\n" +
-                "• 打开历史记录恢复\n" +
-                "• 文件变更自动刷新(保持滚动位置)\n" +
-                "• 删除文件自动切换",
-                "关于",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
+            const string projectUrl = "https://github.com/leojulian/MarkdownViewer";
+
+            var content = new StackPanel { Margin = new Thickness(24) };
+            content.Children.Add(new TextBlock
+            {
+                Text = "MarkdownViewer v1.9",
+                FontSize = 20,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 0, 0, 12)
+            });
+            content.Children.Add(new TextBlock
+            {
+                Text = "基于 WPF + Markdig + WebView2 构建\n支持 Markdown 扩展语法与本地文档浏览",
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 14)
+            });
+            content.Children.Add(new TextBlock
+            {
+                Text = "主要功能:\n" +
+                       "• 文件夹浏览与文档树\n" +
+                       "• 拖拽文件/文件夹打开\n" +
+                       "• 历史记录与上次会话恢复\n" +
+                       "• 文件实时监控与自动刷新\n" +
+                       "• 缩放、深色模式与工具栏配置\n" +
+                       "• Mermaid 图表与文本搜索\n" +
+                       "• 收藏夹与文档目录导航",
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 14)
+            });
+
+            var projectLink = new Hyperlink(new Run(projectUrl))
+            {
+                NavigateUri = new Uri(projectUrl)
+            };
+            projectLink.RequestNavigate += (_, args) =>
+            {
+                Process.Start(new ProcessStartInfo(args.Uri.AbsoluteUri) { UseShellExecute = true });
+                args.Handled = true;
+            };
+
+            var linkText = new TextBlock { Margin = new Thickness(0, 0, 0, 20) };
+            linkText.Inlines.Add(new Run("项目地址: "));
+            linkText.Inlines.Add(projectLink);
+            content.Children.Add(linkText);
+
+            var closeButton = new Button
+            {
+                Content = "确定",
+                IsDefault = true,
+                MinWidth = 80,
+                Padding = new Thickness(12, 4, 12, 4),
+                HorizontalAlignment = HorizontalAlignment.Right
+            };
+            content.Children.Add(closeButton);
+
+            var aboutWindow = new Window
+            {
+                Title = "关于",
+                Owner = this,
+                Content = content,
+                Width = 520,
+                SizeToContent = SizeToContent.Height,
+                ResizeMode = ResizeMode.NoResize,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                ShowInTaskbar = false
+            };
+            closeButton.Click += (_, _) => aboutWindow.Close();
+            aboutWindow.ShowDialog();
         }
         #endregion
     }

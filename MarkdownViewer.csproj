@@ -7,6 +7,7 @@
     <UseWPF>true</UseWPF>
     <RootNamespace>MarkdownViewer</RootNamespace>
     <AssemblyName>MarkdownViewer</AssemblyName>
+    <Version>1.10.0</Version>
     <ApplicationIcon>Assets\app_icon.ico</ApplicationIcon>
   </PropertyGroup>
 

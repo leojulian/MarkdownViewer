@@ -27,6 +27,7 @@ namespace MarkdownViewer
         private readonly HistoryManager _historyManager;
         private readonly FavoritesManager _favoritesManager;
         private readonly ConfigManager _configManager;
+        private readonly string? _startupFilePath;
         private static readonly string _mermaidJsContent;
 
         static MainWindow()
@@ -66,9 +67,10 @@ namespace MarkdownViewer
             }
         }
 
-        public MainWindow()
+        public MainWindow(string? startupFilePath = null)
         {
             InitializeComponent();
+            _startupFilePath = startupFilePath;
             _pipeline = new MarkdownPipelineBuilder()
                 .UseAdvancedExtensions()
                 .UsePipeTables()
@@ -98,9 +100,62 @@ namespace MarkdownViewer
             // 加载并应用 UI 配置
             _configManager.Load();
             ApplyConfig();
+            _historyManager.Load();
 
-            // 还原最近一次打开的文件夹
-            RestoreLastSession();
+            if (!OpenStartupFile())
+            {
+                // 没有命令行文件参数时，还原最近一次打开的文件夹
+                RestoreLastSession();
+            }
+        }
+
+        private bool OpenStartupFile()
+        {
+            if (string.IsNullOrWhiteSpace(_startupFilePath))
+                return false;
+
+            string filePath;
+            try
+            {
+                filePath = Path.GetFullPath(_startupFilePath.Trim('"'));
+            }
+            catch (Exception ex)
+            {
+                RenderEmpty();
+                MessageBox.Show($"无法打开指定文件: {ex.Message}", "打开文件失败",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return true;
+            }
+
+            if (!File.Exists(filePath))
+            {
+                RenderEmpty();
+                MessageBox.Show($"文件不存在: {filePath}", "打开文件失败",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return true;
+            }
+
+            if (!_supportedExtensions.Contains(Path.GetExtension(filePath)))
+            {
+                RenderEmpty();
+                MessageBox.Show($"不支持的文件格式: {Path.GetExtension(filePath)}\n\n支持的格式: {string.Join(", ", _supportedExtensions)}",
+                    "不支持的文件", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return true;
+            }
+
+            var folderPath = Path.GetDirectoryName(filePath);
+            if (!string.IsNullOrEmpty(folderPath))
+            {
+                OpenFolder(folderPath);
+                if (!SelectFileInTree(filePath))
+                    LoadMarkdownFile(filePath);
+            }
+            else
+            {
+                LoadMarkdownFile(filePath);
+            }
+
+            return true;
         }
 
         private void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
@@ -127,7 +182,6 @@ namespace MarkdownViewer
         #region 历史记录
         private void RestoreLastSession()
         {
-            _historyManager.Load();
             var lastEntry = _historyManager.GetLatest();
 
             if (lastEntry != null && Directory.Exists(lastEntry.FolderPath))
@@ -712,7 +766,7 @@ namespace MarkdownViewer
             return null;
         }
 
-        private void SelectFileInTree(string filePath)
+        private bool SelectFileInTree(string filePath)
         {
             foreach (var item in FileTreeView.Items)
             {
@@ -733,15 +787,18 @@ namespace MarkdownViewer
                         {
                             LoadMarkdownFile(path);
                         }
-                        return;
+                        return true;
                     }
                 }
             }
+            return false;
         }
 
         private TreeViewItem? FindFileNodeByPath(TreeViewItem node, string filePath)
         {
-            if (node.Tag is string path && path == filePath && File.Exists(path))
+            if (node.Tag is string path &&
+                string.Equals(path, filePath, StringComparison.OrdinalIgnoreCase) &&
+                File.Exists(path))
                 return node;
 
             foreach (var child in node.Items)
@@ -1389,7 +1446,7 @@ namespace MarkdownViewer
             var content = new StackPanel { Margin = new Thickness(24) };
             content.Children.Add(new TextBlock
             {
-                Text = "MarkdownViewer v1.9",
+                Text = "MarkdownViewer v1.10",
                 FontSize = 20,
                 FontWeight = FontWeights.SemiBold,
                 Margin = new Thickness(0, 0, 0, 12)

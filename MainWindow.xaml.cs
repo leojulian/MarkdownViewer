@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
@@ -19,8 +20,17 @@ namespace MarkdownViewer
 {
     public partial class MainWindow : Window
     {
+        private enum OpenMode
+        {
+            None,
+            Standalone,
+            Workspace
+        }
+
         private string? _currentFilePath;
         private string? _currentFolderPath;
+        private OpenMode _openMode;
+        private GridLength _workspaceColumnWidth = new(280);
         private double _zoomFactor = 1.0;
         private bool _isDarkMode;
         private readonly MarkdownPipeline _pipeline;
@@ -39,11 +49,24 @@ namespace MarkdownViewer
         private System.Timers.Timer? _debounceTimer;
         private double _scrollRestoreY;
         private bool _isAutoReload;
+        private string? _pendingFragment;
+        private readonly List<string> _activeResourceHosts = new();
+        private const int FileEventDebounceMilliseconds = 600;
 
         private static readonly HashSet<string> _supportedExtensions = new(StringComparer.OrdinalIgnoreCase)
         {
             ".md", ".markdown", ".mdown", ".mkd", ".mkdn", ".mdwn", ".mdtxt", ".mdtext", ".rmd"
         };
+
+        private static readonly HashSet<string> _blockedShellExtensions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ".exe", ".com", ".bat", ".cmd", ".ps1", ".psm1", ".vbs", ".vbe", ".js", ".jse",
+            ".wsf", ".wsh", ".scr", ".msi", ".msp", ".lnk", ".url"
+        };
+
+        private static readonly Regex _imageSourceRegex = new(
+            @"(?<prefix><img\b[^>]*\bsrc\s*=\s*)(?<quote>[""'])(?<source>.*?)(\k<quote>)",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private static string ExtractMermaidJs()
         {
@@ -92,6 +115,8 @@ namespace MarkdownViewer
             webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
             webView.CoreWebView2.Settings.AreBrowserAcceleratorKeysEnabled = false;
             webView.CoreWebView2.NavigationCompleted += WebView_NavigationCompleted;
+            webView.CoreWebView2.WebMessageReceived += WebView_WebMessageReceived;
+            webView.CoreWebView2.NewWindowRequested += WebView_NewWindowRequested;
 
             // 注入 mermaid.js（避免 NavigateToString 大小限制）
             if (!string.IsNullOrEmpty(_mermaidJsContent))
@@ -114,15 +139,10 @@ namespace MarkdownViewer
             if (string.IsNullOrWhiteSpace(_startupFilePath))
                 return false;
 
-            string filePath;
-            try
-            {
-                filePath = Path.GetFullPath(_startupFilePath.Trim('"'));
-            }
-            catch (Exception ex)
+            if (!TryResolveLocalInput(_startupFilePath, out var filePath, out var fragment, out var error))
             {
                 RenderEmpty();
-                MessageBox.Show($"无法打开指定文件: {ex.Message}", "打开文件失败",
+                MessageBox.Show($"无法打开指定文件: {error}", "打开文件失败",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 return true;
             }
@@ -143,17 +163,8 @@ namespace MarkdownViewer
                 return true;
             }
 
-            var folderPath = Path.GetDirectoryName(filePath);
-            if (!string.IsNullOrEmpty(folderPath))
-            {
-                OpenFolder(folderPath);
-                if (!SelectFileInTree(filePath))
-                    LoadMarkdownFile(filePath);
-            }
-            else
-            {
-                LoadMarkdownFile(filePath);
-            }
+            _pendingFragment = fragment;
+            OpenExternalFile(filePath);
 
             return true;
         }
@@ -164,14 +175,14 @@ namespace MarkdownViewer
             _debounceTimer?.Dispose();
             StopFileWatcher();
 
-            // 关闭时保存当前文件夹及当前文件到历史记录
-            if (!string.IsNullOrEmpty(_currentFolderPath) && Directory.Exists(_currentFolderPath))
+            // 关闭时保存当前 workspace 及当前文件到历史记录
+            if (_openMode == OpenMode.Workspace &&
+                !string.IsNullOrEmpty(_currentFolderPath) && Directory.Exists(_currentFolderPath))
             {
                 _historyManager.AddEntry(_currentFolderPath, _currentFilePath);
                 _historyManager.Save();
             }
 
-            _favoritesManager.Save();
             _configManager.ZoomFactor = _zoomFactor;
             _configManager.IsDarkMode = _isDarkMode;
             _configManager.IsTocVisible = TocPanel.Visibility == Visibility.Visible;
@@ -186,21 +197,7 @@ namespace MarkdownViewer
 
             if (lastEntry != null && Directory.Exists(lastEntry.FolderPath))
             {
-                _currentFolderPath = lastEntry.FolderPath;
-                _favoritesManager.SetFolderPath(lastEntry.FolderPath);
-                _favoritesManager.Load();
-                RefreshFavoritesList();
-                PopulateFileTree(lastEntry.FolderPath);
-                StartFileWatcher(lastEntry.FolderPath);
-
-                StatusText.Text = $"历史记录: {lastEntry.FolderPath}";
-                Title = $"{Path.GetFileName(lastEntry.FolderPath)} - Markdown 查看器";
-
-                // 恢复上次打开的文档
-                if (!string.IsNullOrEmpty(lastEntry.LastFilePath) && File.Exists(lastEntry.LastFilePath))
-                {
-                    SelectFileInTree(lastEntry.LastFilePath);
-                }
+                OpenWorkspace(lastEntry.FolderPath, lastEntry.LastFilePath);
             }
             else
             {
@@ -212,7 +209,9 @@ namespace MarkdownViewer
         #region 拖拽支持
         private void Window_DragEnter(object sender, DragEventArgs e)
         {
-            if (e.Data.GetDataPresent(DataFormats.FileDrop))
+            if (e.Data.GetDataPresent(DataFormats.FileDrop) ||
+                e.Data.GetDataPresent(DataFormats.UnicodeText) ||
+                e.Data.GetDataPresent(DataFormats.Text))
             {
                 e.Effects = DragDropEffects.Copy;
             }
@@ -225,32 +224,38 @@ namespace MarkdownViewer
 
         private void Window_Drop(object sender, DragEventArgs e)
         {
+            string? input = null;
             if (e.Data.GetDataPresent(DataFormats.FileDrop))
             {
                 var files = (string[])e.Data.GetData(DataFormats.FileDrop);
                 if (files == null || files.Length == 0)
                     return;
 
-                var path = files[0];
-
-                // 判断是文件夹还是文件
-                if (Directory.Exists(path))
-                {
-                    OpenFolder(path);
-                }
-                else if (File.Exists(path))
-                {
-                    if (_supportedExtensions.Contains(Path.GetExtension(path)))
-                    {
-                        LoadMarkdownFile(path);
-                    }
-                    else
-                    {
-                        MessageBox.Show($"不支持的文件格式: {Path.GetExtension(path)}\n\n支持的格式: {string.Join(", ", _supportedExtensions)}",
-                            "不支持的文件", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    }
-                }
+                input = files[0];
             }
+            else if (e.Data.GetDataPresent(DataFormats.UnicodeText))
+                input = e.Data.GetData(DataFormats.UnicodeText) as string;
+            else if (e.Data.GetDataPresent(DataFormats.Text))
+                input = e.Data.GetData(DataFormats.Text) as string;
+
+            if (string.IsNullOrWhiteSpace(input))
+                return;
+
+            if (!TryResolveLocalInput(input, out var path, out _, out var error))
+            {
+                MessageBox.Show(error ?? "无法识别拖入内容。", "无法打开",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            // 拖拽文件夹仍等同于“打开文件夹”，进入 workspace。
+            if (Directory.Exists(path))
+                OpenWorkspace(path);
+            else if (File.Exists(path) && _supportedExtensions.Contains(Path.GetExtension(path)))
+                OpenStandaloneFile(path);
+            else if (File.Exists(path))
+                MessageBox.Show($"不支持的文件格式: {Path.GetExtension(path)}\n\n支持的格式: {string.Join(", ", _supportedExtensions)}",
+                    "不支持的文件", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
         #endregion
 
@@ -314,7 +319,7 @@ namespace MarkdownViewer
 
             if (dialog.ShowDialog() == true)
             {
-                LoadMarkdownFile(dialog.FileName);
+                OpenStandaloneFile(dialog.FileName);
             }
         }
 
@@ -327,19 +332,122 @@ namespace MarkdownViewer
 
             if (dialog.ShowDialog() == true)
             {
-                OpenFolder(dialog.FolderName);
+                OpenWorkspace(dialog.FolderName);
             }
         }
 
-        private void OpenFolder(string folderPath)
+        private void OpenExternalFile(string filePath)
+        {
+            var workspacePath = FindBestWorkspaceForFile(filePath);
+            if (!string.IsNullOrEmpty(workspacePath))
+                OpenWorkspace(workspacePath, filePath);
+            else
+                OpenStandaloneFile(filePath);
+        }
+
+        private static bool TryResolveLocalInput(string input, out string localPath,
+            out string? fragment, out string? error)
+        {
+            localPath = "";
+            fragment = null;
+            error = null;
+            var value = input.Trim().Trim('"');
+
+            try
+            {
+                if (value.StartsWith("file:", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || !uri.IsFile)
+                    {
+                        error = "无效的 file URI。";
+                        return false;
+                    }
+
+                    localPath = Path.GetFullPath(uri.LocalPath);
+                    fragment = string.IsNullOrEmpty(uri.Fragment)
+                        ? null
+                        : Uri.UnescapeDataString(uri.Fragment.TrimStart('#'));
+                    return true;
+                }
+
+                if (Uri.TryCreate(value, UriKind.Absolute, out var nonFileUri) &&
+                    !nonFileUri.IsFile && !string.IsNullOrEmpty(nonFileUri.Scheme))
+                {
+                    error = $"不支持的 URI 协议: {nonFileUri.Scheme}";
+                    return false;
+                }
+
+                localPath = Path.GetFullPath(value);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return false;
+            }
+        }
+
+        private string? FindBestWorkspaceForFile(string filePath)
+        {
+            string fullFilePath;
+            try
+            {
+                fullFilePath = Path.GetFullPath(filePath);
+            }
+            catch
+            {
+                return null;
+            }
+
+            return _historyManager.GetAll()
+                .Select(entry => entry.FolderPath)
+                .Where(Directory.Exists)
+                .Select(path => Path.GetFullPath(path))
+                .Where(path => IsFileInsideFolder(fullFilePath, path))
+                .OrderByDescending(path => path.Length)
+                .FirstOrDefault();
+        }
+
+        private static bool IsFileInsideFolder(string filePath, string folderPath)
+        {
+            var relativePath = Path.GetRelativePath(folderPath, filePath);
+            return !Path.IsPathRooted(relativePath) &&
+                   !relativePath.Equals("..", StringComparison.Ordinal) &&
+                   !relativePath.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal) &&
+                   !relativePath.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal);
+        }
+
+        private void OpenStandaloneFile(string filePath)
+        {
+            if (!File.Exists(filePath) || !_supportedExtensions.Contains(Path.GetExtension(filePath)))
+                return;
+
+            StopFileWatcher();
+            _openMode = OpenMode.Standalone;
+            _currentFolderPath = null;
+            _currentFilePath = null;
+            _favoritesManager.SetFolderPath(null);
+            RefreshFavoritesList();
+            SetWorkspacePanelVisible(false);
+
+            LoadMarkdownFile(filePath);
+            StartStandaloneFileWatcher(filePath);
+            StatusText.Text = $"单文件: {filePath}";
+            UpdateFavButton();
+        }
+
+        private void OpenWorkspace(string folderPath, string? targetFilePath = null)
         {
             if (!Directory.Exists(folderPath))
                 return;
 
             StopFileWatcher();
 
+            folderPath = Path.GetFullPath(folderPath);
+            _openMode = OpenMode.Workspace;
             _currentFolderPath = folderPath;
             _currentFilePath = null;
+            SetWorkspacePanelVisible(true);
             _favoritesManager.SetFolderPath(folderPath);
             _favoritesManager.Load();
             RefreshFavoritesList();
@@ -349,7 +457,42 @@ namespace MarkdownViewer
             StatusText.Text = $"文件夹: {folderPath}";
             Title = $"{Path.GetFileName(folderPath)} - Markdown 查看器";
 
-            _historyManager.AddEntry(folderPath, null);
+            if (!string.IsNullOrEmpty(targetFilePath) &&
+                File.Exists(targetFilePath) && IsFileInsideFolder(targetFilePath, folderPath))
+            {
+                if (!SelectFileInTree(targetFilePath))
+                    LoadMarkdownFile(targetFilePath);
+            }
+
+            _historyManager.AddEntry(folderPath, _currentFilePath);
+            _historyManager.Save();
+            UpdateFavButton();
+        }
+
+        private void SetWorkspacePanelVisible(bool visible)
+        {
+            if (visible)
+            {
+                WorkspaceColumn.MinWidth = 180;
+                WorkspaceColumn.Width = _workspaceColumnWidth.Value > 0 ? _workspaceColumnWidth : new GridLength(280);
+                WorkspaceSplitterColumn.Width = new GridLength(5);
+                WorkspacePanel.Visibility = Visibility.Visible;
+                WorkspaceSplitter.Visibility = Visibility.Visible;
+                FavButton.IsEnabled = true;
+                FavButton.ToolTip = "收藏当前文档";
+            }
+            else
+            {
+                if (WorkspaceColumn.Width.Value > 0)
+                    _workspaceColumnWidth = WorkspaceColumn.Width;
+                WorkspaceColumn.MinWidth = 0;
+                WorkspaceColumn.Width = new GridLength(0);
+                WorkspaceSplitterColumn.Width = new GridLength(0);
+                WorkspacePanel.Visibility = Visibility.Collapsed;
+                WorkspaceSplitter.Visibility = Visibility.Collapsed;
+                FavButton.IsEnabled = false;
+                FavButton.ToolTip = "单文件模式不支持目录收藏，请先打开文件夹";
+            }
         }
 
         private void PopulateFileTree(string folderPath)
@@ -468,7 +611,7 @@ namespace MarkdownViewer
                 item.Click += (_, _) =>
                 {
                     if (Directory.Exists(path))
-                        OpenFolder(path);
+                        OpenWorkspace(path);
                 };
                 HistoryMenu.Items.Add(item);
             }
@@ -501,8 +644,9 @@ namespace MarkdownViewer
             {
                 var markdown = File.ReadAllText(filePath, Encoding.UTF8);
                 var html = Markdig.Markdown.ToHtml(markdown, _pipeline);
+                html = RewriteLocalImageSources(html, filePath);
                 BuildToc(markdown);
-                var fullHtml = WrapHtml(html, Path.GetDirectoryName(filePath));
+                var fullHtml = WrapHtml(html, filePath);
 
                 webView.NavigateToString(fullHtml);
                 _currentFilePath = filePath;
@@ -510,6 +654,12 @@ namespace MarkdownViewer
                 StatusText.Text = $"已加载: {Path.GetFileName(filePath)}";
                 Title = $"{Path.GetFileName(filePath)} - Markdown 查看器";
                 UpdateFavButton();
+
+                if (_openMode == OpenMode.Workspace && !_isAutoReload && !string.IsNullOrEmpty(_currentFolderPath))
+                {
+                    _historyManager.AddEntry(_currentFolderPath, _currentFilePath);
+                    _historyManager.Save();
+                }
             }
             catch (Exception ex)
             {
@@ -520,19 +670,316 @@ namespace MarkdownViewer
 
         private async void WebView_NavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
         {
-            if (!_isAutoReload || _scrollRestoreY <= 0)
+            if (_isAutoReload)
+            {
+                _isAutoReload = false;
+                if (_scrollRestoreY > 0)
+                {
+                    // 恢复滚动位置（延迟一帧确保 DOM 渲染完成）
+                    await System.Threading.Tasks.Task.Delay(50);
+                    try
+                    {
+                        await webView.CoreWebView2.ExecuteScriptAsync(
+                            $"window.scrollTo(0, {_scrollRestoreY});");
+                    }
+                    catch { /* 忽略 */ }
+                }
+            }
+
+            if (!string.IsNullOrEmpty(_pendingFragment))
+            {
+                var fragment = _pendingFragment;
+                _pendingFragment = null;
+                await ScrollToFragment(fragment);
+            }
+        }
+
+        private void WebView_WebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
+        {
+            try
+            {
+                var uri = e.TryGetWebMessageAsString();
+                if (!string.IsNullOrWhiteSpace(uri))
+                    HandleDocumentLink(uri);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"无法打开链接: {ex.Message}", "链接错误",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+
+        private void WebView_NewWindowRequested(object? sender, CoreWebView2NewWindowRequestedEventArgs e)
+        {
+            e.Handled = true;
+            try
+            {
+                HandleDocumentLink(e.Uri);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"无法打开链接: {ex.Message}", "链接错误",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+
+        private void HandleDocumentLink(string link)
+        {
+            if (link.StartsWith("#", StringComparison.Ordinal))
+            {
+                var localFragment = Uri.UnescapeDataString(link[1..]);
+                if (!string.IsNullOrEmpty(localFragment))
+                    _ = ScrollToFragment(localFragment);
+                return;
+            }
+
+            if (!TryResolveDocumentLinkUri(link, out var uri))
+            {
+                MessageBox.Show($"无法识别链接: {link}", "链接错误",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            if (uri.Scheme is "http" or "https" or "mailto")
+            {
+                OpenWithSystem(uri.AbsoluteUri);
+                return;
+            }
+
+            if (!uri.IsFile)
+            {
+                MessageBox.Show($"不支持的链接协议: {uri.Scheme}", "链接错误",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            var localPath = Path.GetFullPath(uri.LocalPath);
+            var fragment = string.IsNullOrEmpty(uri.Fragment)
+                ? null
+                : Uri.UnescapeDataString(uri.Fragment.TrimStart('#'));
+
+            if (Directory.Exists(localPath))
+            {
+                OpenWithSystem(localPath);
+                return;
+            }
+
+            if (!File.Exists(localPath))
+            {
+                MessageBox.Show($"目标不存在: {localPath}", "链接目标不存在",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            if (_supportedExtensions.Contains(Path.GetExtension(localPath)))
+            {
+                OpenLinkedMarkdown(localPath, fragment);
+                return;
+            }
+
+            var extension = Path.GetExtension(localPath);
+            if (_blockedShellExtensions.Contains(extension))
+            {
+                MessageBox.Show($"出于安全考虑，不允许从 Markdown 文档直接启动此类文件: {extension}",
+                    "已阻止文件启动", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            OpenWithSystem(localPath);
+        }
+
+        private bool TryResolveDocumentLinkUri(string link, out Uri uri)
+        {
+            if (Uri.TryCreate(link, UriKind.Absolute, out uri!))
+                return true;
+
+            if (string.IsNullOrEmpty(_currentFilePath))
+                return false;
+
+            var baseUri = new Uri(Path.GetFullPath(_currentFilePath));
+            return Uri.TryCreate(baseUri, link, out uri!);
+        }
+
+        private void OpenLinkedMarkdown(string filePath, string? fragment)
+        {
+            filePath = Path.GetFullPath(filePath);
+
+            if (IsSamePath(filePath, _currentFilePath))
+            {
+                if (!string.IsNullOrEmpty(fragment))
+                    _ = ScrollToFragment(fragment);
+                return;
+            }
+
+            if (_openMode == OpenMode.Workspace && !string.IsNullOrEmpty(_currentFolderPath) &&
+                IsFileInsideFolder(filePath, _currentFolderPath))
+            {
+                _pendingFragment = fragment;
+                if (!SelectFileInTree(filePath))
+                {
+                    PopulateFileTree(_currentFolderPath);
+                    if (!SelectFileInTree(filePath))
+                    {
+                        _pendingFragment = null;
+                        MessageBox.Show($"文件存在，但无法在当前 workspace 文档树中定位: {filePath}",
+                            "无法定位文档", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    }
+                }
+                return;
+            }
+
+            StartNewViewerInstance(filePath, fragment);
+        }
+
+        private static void StartNewViewerInstance(string filePath, string? fragment)
+        {
+            var executablePath = Environment.ProcessPath;
+            if (string.IsNullOrEmpty(executablePath))
+                throw new InvalidOperationException("无法确定 MarkdownViewer 可执行文件路径。");
+
+            var argument = filePath;
+            if (!string.IsNullOrEmpty(fragment))
+            {
+                var builder = new UriBuilder(new Uri(Path.GetFullPath(filePath))) { Fragment = fragment };
+                argument = builder.Uri.AbsoluteUri;
+            }
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = executablePath,
+                UseShellExecute = false
+            };
+            startInfo.ArgumentList.Add(argument);
+            Process.Start(startInfo);
+        }
+
+        private static void OpenWithSystem(string target)
+        {
+            Process.Start(new ProcessStartInfo(target) { UseShellExecute = true });
+        }
+
+        private async System.Threading.Tasks.Task ScrollToFragment(string fragment)
+        {
+            if (webView.CoreWebView2 == null || string.IsNullOrEmpty(fragment))
                 return;
 
-            _isAutoReload = false;
-
-            // 恢复滚动位置（延迟一帧确保 DOM 渲染完成）
             await System.Threading.Tasks.Task.Delay(50);
             try
             {
-                await webView.CoreWebView2.ExecuteScriptAsync(
-                    $"window.scrollTo(0, {_scrollRestoreY});");
+                var script = BuildFragmentScrollScript(fragment);
+                await webView.CoreWebView2.ExecuteScriptAsync(script);
             }
-            catch { /* 忽略 */ }
+            catch { /* 忽略无效锚点 */ }
+        }
+
+        private static string BuildFragmentScrollScript(string fragment)
+        {
+            var fragmentJson = JsonSerializer.Serialize(fragment);
+            return "(function(){var wanted=" + fragmentJson + ";var h=document.getElementById(wanted);" +
+                   "if(!h){var named=document.getElementsByName(wanted);if(named.length>0)h=named[0];}" +
+                   "if(!h){var hs=document.querySelectorAll('h1,h2,h3,h4,h5,h6');" +
+                   "for(var i=0;i<hs.length;i++){if(hs[i].textContent.trim()===wanted){h=hs[i];break;}}}" +
+                   "if(!h)return false;h.scrollIntoView({behavior:'auto',block:'start'});return true;})();";
+        }
+
+        private string RewriteLocalImageSources(string html, string markdownFilePath)
+        {
+            ClearLocalResourceMappings();
+            if (webView.CoreWebView2 == null)
+                return html;
+
+            var markdownDirectory = Path.GetDirectoryName(Path.GetFullPath(markdownFilePath));
+            if (string.IsNullOrEmpty(markdownDirectory))
+                return html;
+
+            var directoryHosts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            return _imageSourceRegex.Replace(html, match =>
+            {
+                var source = System.Net.WebUtility.HtmlDecode(match.Groups["source"].Value);
+                if (!TryResolveLocalImagePath(source, markdownDirectory, out var imagePath, out var suffix))
+                    return match.Value;
+
+                var imageDirectory = Path.GetDirectoryName(imagePath);
+                if (string.IsNullOrEmpty(imageDirectory) || !Directory.Exists(imageDirectory))
+                    return match.Value;
+
+                if (!directoryHosts.TryGetValue(imageDirectory, out var hostName))
+                {
+                    hostName = $"resource-{directoryHosts.Count}.markdownviewer.local";
+                    webView.CoreWebView2.SetVirtualHostNameToFolderMapping(
+                        hostName, imageDirectory, CoreWebView2HostResourceAccessKind.DenyCors);
+                    directoryHosts[imageDirectory] = hostName;
+                    _activeResourceHosts.Add(hostName);
+                }
+
+                var fileName = Path.GetFileName(imagePath);
+                var resourceUrl = $"https://{hostName}/{Uri.EscapeDataString(fileName)}{suffix}";
+                return match.Groups["prefix"].Value + match.Groups["quote"].Value +
+                       System.Net.WebUtility.HtmlEncode(resourceUrl) + match.Groups["quote"].Value;
+            });
+        }
+
+        private static bool TryResolveLocalImagePath(string source, string markdownDirectory,
+            out string imagePath, out string suffix)
+        {
+            imagePath = "";
+            suffix = "";
+            if (string.IsNullOrWhiteSpace(source) ||
+                source.StartsWith("data:", StringComparison.OrdinalIgnoreCase) ||
+                source.StartsWith("http:", StringComparison.OrdinalIgnoreCase) ||
+                source.StartsWith("https:", StringComparison.OrdinalIgnoreCase) ||
+                source.StartsWith("blob:", StringComparison.OrdinalIgnoreCase) ||
+                source.StartsWith("//", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            try
+            {
+                if (source.StartsWith("file:", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!Uri.TryCreate(source, UriKind.Absolute, out var fileUri) || !fileUri.IsFile)
+                        return false;
+
+                    imagePath = Path.GetFullPath(fileUri.LocalPath);
+                    suffix = fileUri.Query + fileUri.Fragment;
+                    return true;
+                }
+
+                var pathPart = source;
+                var suffixIndex = source.IndexOfAny(['?', '#']);
+                if (suffixIndex >= 0)
+                {
+                    pathPart = source[..suffixIndex];
+                    suffix = source[suffixIndex..];
+                }
+
+                pathPart = Uri.UnescapeDataString(pathPart).Replace('/', Path.DirectorySeparatorChar);
+                imagePath = Path.GetFullPath(Path.IsPathRooted(pathPart)
+                    ? pathPart
+                    : Path.Combine(markdownDirectory, pathPart));
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private void ClearLocalResourceMappings()
+        {
+            if (webView.CoreWebView2 == null)
+                return;
+
+            foreach (var hostName in _activeResourceHosts)
+            {
+                try
+                {
+                    webView.CoreWebView2.ClearVirtualHostNameToFolderMapping(hostName);
+                }
+                catch { /* 映射不存在时忽略 */ }
+            }
+            _activeResourceHosts.Clear();
         }
         #endregion
 
@@ -567,8 +1014,42 @@ namespace MarkdownViewer
             }
         }
 
+        private void StartStandaloneFileWatcher(string filePath)
+        {
+            StopFileWatcher();
+
+            var folderPath = Path.GetDirectoryName(filePath);
+            var fileName = Path.GetFileName(filePath);
+            if (string.IsNullOrEmpty(folderPath) || string.IsNullOrEmpty(fileName))
+                return;
+
+            try
+            {
+                _fileWatcher = new FileSystemWatcher(folderPath)
+                {
+                    Filter = fileName,
+                    IncludeSubdirectories = false,
+                    NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size,
+                    EnableRaisingEvents = true
+                };
+
+                _fileWatcher.Deleted += OnFileDeleted;
+                _fileWatcher.Renamed += OnFileRenamed;
+                _fileWatcher.Created += OnFileCreated;
+                _fileWatcher.Changed += OnFileChanged;
+            }
+            catch
+            {
+                // 无权限监控时静默失败
+            }
+        }
+
         private void StopFileWatcher()
         {
+            _debounceTimer?.Stop();
+            _debounceTimer?.Dispose();
+            _debounceTimer = null;
+
             if (_fileWatcher != null)
             {
                 _fileWatcher.EnableRaisingEvents = false;
@@ -579,15 +1060,64 @@ namespace MarkdownViewer
 
         private void OnFileDeleted(object sender, FileSystemEventArgs e)
         {
-            Dispatcher.Invoke(() => HandleFileDeleted(e.FullPath));
+            Dispatcher.Invoke(() =>
+            {
+                if (_openMode == OpenMode.Standalone)
+                {
+                    if (IsSamePath(e.FullPath, _currentFilePath))
+                        RenderStandaloneMissing(e.FullPath);
+                    return;
+                }
+
+                if (_openMode == OpenMode.Workspace)
+                {
+                    if (IsSamePath(e.FullPath, _currentFilePath))
+                        ScheduleCurrentFileRecheck(e.FullPath);
+                    else
+                        HandleFileDeleted(e.FullPath);
+                }
+            });
         }
 
         private void OnFileRenamed(object sender, RenamedEventArgs e)
         {
             Dispatcher.Invoke(() =>
             {
-                // 重命名后刷新整个树
-                if (!string.IsNullOrEmpty(_currentFolderPath))
+                if (_openMode == OpenMode.Standalone)
+                {
+                    if (IsSamePath(e.OldFullPath, _currentFilePath))
+                    {
+                        _currentFilePath = e.FullPath;
+                        FilePathText.Text = e.FullPath;
+                        StartStandaloneFileWatcher(e.FullPath);
+                        LoadMarkdownFile(e.FullPath);
+                    }
+                    return;
+                }
+
+                // Workspace 中当前文件的原子替换通常表现为“临时文件重命名为当前文件”。
+                if (_openMode == OpenMode.Workspace && IsSamePath(e.FullPath, _currentFilePath))
+                {
+                    ScheduleCurrentFileRecheck(e.FullPath);
+                    return;
+                }
+
+                // 当前文件被真正重命名时，保持当前文档并恢复滚动位置。
+                if (_openMode == OpenMode.Workspace && IsSamePath(e.OldFullPath, _currentFilePath) &&
+                    File.Exists(e.FullPath) && _supportedExtensions.Contains(Path.GetExtension(e.FullPath)))
+                {
+                    _currentFilePath = e.FullPath;
+                    if (!string.IsNullOrEmpty(_currentFolderPath))
+                    {
+                        PopulateFileTree(_currentFolderPath);
+                        SelectFileInTree(e.FullPath, loadFile: false);
+                    }
+                    ScheduleCurrentFileRecheck(e.FullPath);
+                    return;
+                }
+
+                // 其他文件重命名后刷新树，但不重复加载当前文档。
+                if (_openMode == OpenMode.Workspace && !string.IsNullOrEmpty(_currentFolderPath))
                 {
                     var savedFilePath = _currentFilePath;
                     PopulateFileTree(_currentFolderPath);
@@ -595,7 +1125,7 @@ namespace MarkdownViewer
                     // 尝试重新选中当前文件（如果只是重命名了其他文件）
                     if (!string.IsNullOrEmpty(savedFilePath) && File.Exists(savedFilePath))
                     {
-                        SelectFileInTree(savedFilePath);
+                        SelectFileInTree(savedFilePath, loadFile: false);
                     }
                     // 如果改名的是当前文件（旧名消失、新名出现），尝试选中新名
                     else if (e.OldFullPath == _currentFilePath)
@@ -611,15 +1141,28 @@ namespace MarkdownViewer
         {
             Dispatcher.Invoke(() =>
             {
-                // 新增文件时刷新树
-                if (!string.IsNullOrEmpty(_currentFolderPath))
+                if (_openMode == OpenMode.Standalone)
+                {
+                    if (IsSamePath(e.FullPath, _currentFilePath) && File.Exists(e.FullPath))
+                        AutoReloadCurrentFile();
+                    return;
+                }
+
+                if (_openMode == OpenMode.Workspace && IsSamePath(e.FullPath, _currentFilePath))
+                {
+                    ScheduleCurrentFileRecheck(e.FullPath);
+                    return;
+                }
+
+                // 新增其他文件时刷新树，但不重复加载当前文档。
+                if (_openMode == OpenMode.Workspace && !string.IsNullOrEmpty(_currentFolderPath))
                 {
                     var savedFilePath = _currentFilePath;
                     PopulateFileTree(_currentFolderPath);
 
                     if (!string.IsNullOrEmpty(savedFilePath) && File.Exists(savedFilePath))
                     {
-                        SelectFileInTree(savedFilePath);
+                        SelectFileInTree(savedFilePath, loadFile: false);
                     }
                 }
             });
@@ -628,21 +1171,34 @@ namespace MarkdownViewer
         private void OnFileChanged(object sender, FileSystemEventArgs e)
         {
             // 文件内容变更时自动刷新渲染（仅当前打开的文件，带防抖）
-            if (e.FullPath != _currentFilePath || !File.Exists(_currentFilePath))
+            if (_openMode != OpenMode.Standalone && _openMode != OpenMode.Workspace)
                 return;
 
-            // 防抖：300ms 内的多次变更合并为一次刷新
+            if (!IsSamePath(e.FullPath, _currentFilePath) || string.IsNullOrEmpty(_currentFilePath) || !File.Exists(_currentFilePath))
+                return;
+
+            ScheduleCurrentFileRecheck(e.FullPath);
+        }
+
+        private void ScheduleCurrentFileRecheck(string filePath)
+        {
+            // 合并编辑器原子保存产生的 Deleted/Created/Renamed/Changed 事件。
             _debounceTimer?.Stop();
             _debounceTimer?.Dispose();
-            _debounceTimer = new System.Timers.Timer(300) { AutoReset = false };
+            _debounceTimer = new System.Timers.Timer(FileEventDebounceMilliseconds) { AutoReset = false };
             _debounceTimer.Elapsed += (_, _) =>
             {
                 Dispatcher.Invoke(() =>
                 {
-                    if (e.FullPath == _currentFilePath && File.Exists(_currentFilePath))
-                    {
+                    if (!IsSamePath(filePath, _currentFilePath))
+                        return;
+
+                    if (File.Exists(filePath))
                         AutoReloadCurrentFile();
-                    }
+                    else if (_openMode == OpenMode.Workspace)
+                        HandleFileDeleted(filePath);
+                    else if (_openMode == OpenMode.Standalone)
+                        RenderStandaloneMissing(filePath);
                 });
             };
             _debounceTimer.Start();
@@ -650,35 +1206,79 @@ namespace MarkdownViewer
 
         private void HandleFileDeleted(string deletedPath)
         {
+            // 必须在移除节点前保留原目录树顺序，才能从被删除文档的位置查找相邻文档。
+            var documentPaths = GetDocumentPathsInTree(deletedPath);
+            var deletedIndex = documentPaths.FindIndex(path => IsSamePath(path, deletedPath));
+
             // 从树中移除已删除的节点
             RemoveFileNodeFromTree(deletedPath);
             UpdateFileCount();
 
-            // 如果删除的是当前正在显示的文件，切换到下一个
-            if (deletedPath == _currentFilePath)
+            // 如果删除的是当前正在显示的文件，优先切换到目录树中的下一文档；
+            // 下一文档不存在时，再切换到上一文档。
+            if (IsSamePath(deletedPath, _currentFilePath))
             {
                 _currentFilePath = null;
-                var nextFile = GetFirstFileInTree();
+                var adjacentPath = FindAdjacentExistingDocument(documentPaths, deletedIndex);
 
-                if (nextFile != null)
+                if (!string.IsNullOrEmpty(adjacentPath))
                 {
-                    // 下一个文件存在 → 选中并加载
-                    _isRestoringFileSelection = true;
-                    nextFile.IsSelected = true;
-                    nextFile.BringIntoView();
-                    _isRestoringFileSelection = false;
-
-                    if (nextFile.Tag is string path && File.Exists(path))
-                    {
-                        LoadMarkdownFile(path);
-                    }
+                    SelectFileInTree(adjacentPath);
                 }
                 else
                 {
-                    // 没有下一个文件 → 清空显示
+                    // 前后都没有可用文档 → 清空显示
                     RenderEmptyNoFiles();
                 }
             }
+        }
+
+        private List<string> GetDocumentPathsInTree(string includeMissingPath)
+        {
+            var paths = new List<string>();
+            foreach (var item in FileTreeView.Items)
+            {
+                if (item is TreeViewItem rootNode)
+                    CollectDocumentPaths(rootNode, includeMissingPath, paths);
+            }
+            return paths;
+        }
+
+        private void CollectDocumentPaths(TreeViewItem node, string includeMissingPath, List<string> paths)
+        {
+            if (node.Tag is string path &&
+                _supportedExtensions.Contains(Path.GetExtension(path)) &&
+                (File.Exists(path) || IsSamePath(path, includeMissingPath)))
+            {
+                paths.Add(path);
+                return;
+            }
+
+            foreach (var child in node.Items)
+            {
+                if (child is TreeViewItem childNode)
+                    CollectDocumentPaths(childNode, includeMissingPath, paths);
+            }
+        }
+
+        private static string? FindAdjacentExistingDocument(IReadOnlyList<string> documentPaths, int deletedIndex)
+        {
+            if (deletedIndex < 0)
+                return documentPaths.FirstOrDefault(File.Exists);
+
+            for (var i = deletedIndex + 1; i < documentPaths.Count; i++)
+            {
+                if (File.Exists(documentPaths[i]))
+                    return documentPaths[i];
+            }
+
+            for (var i = deletedIndex - 1; i >= 0; i--)
+            {
+                if (File.Exists(documentPaths[i]))
+                    return documentPaths[i];
+            }
+
+            return null;
         }
 
         private void RemoveFileNodeFromTree(string filePath)
@@ -735,38 +1335,7 @@ namespace MarkdownViewer
             }
         }
 
-        private TreeViewItem? GetFirstFileInTree()
-        {
-            foreach (var item in FileTreeView.Items)
-            {
-                if (item is TreeViewItem rootNode)
-                {
-                    var fileNode = FindFirstFileNode(rootNode);
-                    if (fileNode != null)
-                        return fileNode;
-                }
-            }
-            return null;
-        }
-
-        private TreeViewItem? FindFirstFileNode(TreeViewItem node)
-        {
-            foreach (var child in node.Items)
-            {
-                if (child is TreeViewItem childNode)
-                {
-                    if (childNode.Tag is string path && File.Exists(path))
-                        return childNode;
-
-                    var found = FindFirstFileNode(childNode);
-                    if (found != null)
-                        return found;
-                }
-            }
-            return null;
-        }
-
-        private bool SelectFileInTree(string filePath)
+        private bool SelectFileInTree(string filePath, bool loadFile = true)
         {
             foreach (var item in FileTreeView.Items)
             {
@@ -783,7 +1352,7 @@ namespace MarkdownViewer
                         targetNode.BringIntoView();
                         _isRestoringFileSelection = false;
 
-                        if (targetNode.Tag is string path && File.Exists(path))
+                        if (loadFile && targetNode.Tag is string path && File.Exists(path))
                         {
                             LoadMarkdownFile(path);
                         }
@@ -893,7 +1462,7 @@ namespace MarkdownViewer
         #endregion
 
         #region HTML 包装
-        private string WrapHtml(string content, string? basePath)
+        private string WrapHtml(string content, string? baseFilePath)
         {
             var bgColor = _isDarkMode ? "#1e1e1e" : "#ffffff";
             var textColor = _isDarkMode ? "#d4d4d4" : "#333333";
@@ -901,8 +1470,12 @@ namespace MarkdownViewer
             var codeBg = _isDarkMode ? "#2d2d2d" : "#f5f5f5";
             var borderColor = _isDarkMode ? "#404040" : "#e0e0e0";
 
-            var baseTag = string.IsNullOrEmpty(basePath) ? "" :
-                $"<base href=\"file:///{basePath.Replace('\\', '/')}/\">";
+            var baseTag = "";
+            if (!string.IsNullOrEmpty(baseFilePath))
+            {
+                var baseUri = new Uri(Path.GetFullPath(baseFilePath)).AbsoluteUri;
+                baseTag = $"<base href=\"{System.Net.WebUtility.HtmlEncode(baseUri)}\">";
+            }
 
             return $@"<!DOCTYPE html>
 <html lang=""zh-CN"">
@@ -911,6 +1484,14 @@ namespace MarkdownViewer
     {baseTag}
     <script>
         (function() {{
+            document.addEventListener('click', function(event) {{
+                var anchor = event.target.closest('a[href]');
+                if (!anchor) return;
+                event.preventDefault();
+                event.stopPropagation();
+                window.chrome.webview.postMessage(anchor.getAttribute('href') || anchor.href);
+            }}, true);
+
             function renderMermaid() {{
                 var blocks = document.querySelectorAll('pre code.language-mermaid');
                 if (blocks.length === 0) return;
@@ -1026,6 +1607,38 @@ namespace MarkdownViewer
 </div>";
             webView.NavigateToString(WrapHtml(html, null));
             FileCountText.Text = "";
+        }
+
+        private void RenderStandaloneMissing(string filePath)
+        {
+            _debounceTimer?.Stop();
+            _debounceTimer?.Dispose();
+            _debounceTimer = null;
+            var hint = _isDarkMode ? "#888" : "#999";
+            var html = $@"
+<div style=""text-align:center;color:{hint};padding-top:150px;"">
+    <h2>📄 文件已删除或移动</h2>
+    <p>{System.Net.WebUtility.HtmlEncode(filePath)}</p>
+    <p style=""font-size:0.9em;opacity:0.7;"">文件恢复后可按 F5 重新加载</p>
+</div>";
+            webView.NavigateToString(WrapHtml(html, null));
+            StatusText.Text = $"文件已删除或移动: {filePath}";
+            Title = "文件不可用 - Markdown 查看器";
+        }
+
+        private static bool IsSamePath(string? left, string? right)
+        {
+            if (string.IsNullOrEmpty(left) || string.IsNullOrEmpty(right))
+                return false;
+
+            try
+            {
+                return string.Equals(Path.GetFullPath(left), Path.GetFullPath(right), StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
+            }
         }
 
         private void UpdateFileCount()
@@ -1195,14 +1808,24 @@ namespace MarkdownViewer
 
         private void AddFavorite(string filePath)
         {
-            _favoritesManager.Add(filePath);
+            if (!_favoritesManager.Add(filePath, out var error))
+            {
+                MessageBox.Show($"保存收藏失败: {error}", "收藏失败",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
             RefreshFavoritesList();
             UpdateFavButton();
         }
 
         private void RemoveFavorite(string filePath)
         {
-            _favoritesManager.Remove(filePath);
+            if (!_favoritesManager.Remove(filePath, out var error))
+            {
+                MessageBox.Show($"取消收藏失败: {error}", "收藏失败",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
             RefreshFavoritesList();
             UpdateFavButton();
         }
@@ -1446,7 +2069,7 @@ namespace MarkdownViewer
             var content = new StackPanel { Margin = new Thickness(24) };
             content.Children.Add(new TextBlock
             {
-                Text = "MarkdownViewer v1.10",
+                Text = $"MarkdownViewer v{typeof(MainWindow).Assembly.GetName().Version?.ToString(3)}",
                 FontSize = 20,
                 FontWeight = FontWeights.SemiBold,
                 Margin = new Thickness(0, 0, 0, 12)
@@ -1620,9 +2243,11 @@ namespace MarkdownViewer
 
     internal class FavoritesManager
     {
+        private const string FavoriteDirectoryName = ".markdownviewer";
         private string? _favDir;
         private string? _favFile;
         private HashSet<string> _favorites;
+        private DateTime _lastLoadTimeUtc;
 
         public FavoritesManager()
         {
@@ -1631,77 +2256,62 @@ namespace MarkdownViewer
 
         public void SetFolderPath(string? folderPath)
         {
+            _favorites.Clear();
             if (string.IsNullOrEmpty(folderPath))
             {
                 _favDir = null;
                 _favFile = null;
-                _favorites.Clear();
+                _lastLoadTimeUtc = DateTime.MinValue;
                 return;
             }
-            _favDir = Path.Combine(folderPath, ".MarkdownViewer");
+            _favDir = Path.Combine(folderPath, FavoriteDirectoryName);
             _favFile = Path.Combine(_favDir, "favorites.json");
+            _lastLoadTimeUtc = DateTime.MinValue;
         }
 
         public void Load()
         {
-            _favorites.Clear();
-            if (_favFile == null) return;
+            if (_favFile == null)
+            {
+                _favorites.Clear();
+                return;
+            }
+
             try
             {
                 if (File.Exists(_favFile))
                 {
-                    var json = File.ReadAllText(_favFile, Encoding.UTF8);
-                    var list = JsonSerializer.Deserialize<List<string>>(json);
-                    _favorites = new HashSet<string>(list ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
+                    _favorites = ReadFavorites(_favFile);
+                    EnsureHiddenDirectory(_favDir);
                 }
+                else
+                {
+                    _favorites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                }
+                _lastLoadTimeUtc = File.Exists(_favFile)
+                    ? File.GetLastWriteTimeUtc(_favFile)
+                    : DateTime.MinValue;
             }
             catch
             {
-                _favorites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                // 保留当前内存值，避免读取失败后被空列表覆盖。
             }
         }
 
-        public void Save()
+        public bool Add(string filePath, out string? error)
         {
-            if (_favFile == null) return;
-            try
-            {
-                if (!Directory.Exists(_favDir))
-                    Directory.CreateDirectory(_favDir!);
-
-                // 并发安全：先读取已有记录再合并写入
-                var existing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                if (File.Exists(_favFile))
-                {
-                    var json = File.ReadAllText(_favFile, Encoding.UTF8);
-                    var list = JsonSerializer.Deserialize<List<string>>(json);
-                    if (list != null)
-                        foreach (var f in list) existing.Add(f);
-                }
-                // 合并：本地的新增和删除都要反映
-                foreach (var f in _favorites) existing.Add(f);
-                // 注意：无法区分"本地删除"和"从未添加"，所以用传入的 _favorites 为准写入
-                // 实际上我们应该以本地为准并合并远程新增：
-                // 这里简单以最后一次写入为准
-                var merged = JsonSerializer.Serialize(_favorites.ToList(), new JsonSerializerOptions { WriteIndented = true });
-                File.WriteAllText(_favFile, merged, Encoding.UTF8);
-            }
-            catch { }
+            return UpdateFavorites(filePath, add: true, out error);
         }
 
-        public bool IsFavorite(string filePath) => _favorites.Contains(filePath);
-
-        public void Add(string filePath)
+        public bool Remove(string filePath, out string? error)
         {
-            // 并发安全：重新读取再添加
-            ReloadIfChanged();
-            _favorites.Add(filePath);
+            return UpdateFavorites(filePath, add: false, out error);
         }
 
-        public void Remove(string filePath)
+        public bool IsFavorite(string filePath)
         {
             ReloadIfChanged();
-            _favorites.Remove(filePath);
+            return _favorites.Contains(filePath);
         }
 
         public List<string> GetAll()
@@ -1710,16 +2320,125 @@ namespace MarkdownViewer
             return _favorites.ToList();
         }
 
-        private DateTime _lastLoadTime;
         private void ReloadIfChanged()
         {
-            if (_favFile == null || !File.Exists(_favFile)) return;
-            var writeTime = File.GetLastWriteTime(_favFile);
-            if (writeTime > _lastLoadTime)
+            if (_favFile == null)
+                return;
+
+            if (!File.Exists(_favFile))
             {
-                Load();
-                _lastLoadTime = writeTime;
+                if (_lastLoadTimeUtc != DateTime.MinValue)
+                {
+                    _favorites.Clear();
+                    _lastLoadTimeUtc = DateTime.MinValue;
+                }
+                return;
             }
+
+            var writeTimeUtc = File.GetLastWriteTimeUtc(_favFile);
+            if (writeTimeUtc != _lastLoadTimeUtc)
+                Load();
+        }
+
+        private bool UpdateFavorites(string filePath, bool add, out string? error)
+        {
+            error = null;
+            if (_favFile == null || _favDir == null)
+            {
+                error = "当前未打开文件夹，单文件模式不支持目录收藏。";
+                return false;
+            }
+
+            var mutexName = CreateMutexName(_favFile);
+            using var mutex = new System.Threading.Mutex(false, mutexName);
+            var lockTaken = false;
+            try
+            {
+                try
+                {
+                    lockTaken = mutex.WaitOne(TimeSpan.FromSeconds(5));
+                }
+                catch (System.Threading.AbandonedMutexException)
+                {
+                    lockTaken = true;
+                }
+
+                if (!lockTaken)
+                {
+                    error = "等待其他 MarkdownViewer 实例释放收藏文件超时。";
+                    return false;
+                }
+
+                var latest = ReadFavorites(_favFile);
+                if (add)
+                    latest.Add(filePath);
+                else
+                    latest.Remove(filePath);
+
+                WriteFavoritesAtomically(_favDir, _favFile, latest);
+                _favorites = latest;
+                _lastLoadTimeUtc = File.GetLastWriteTimeUtc(_favFile);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return false;
+            }
+            finally
+            {
+                if (lockTaken)
+                    mutex.ReleaseMutex();
+            }
+        }
+
+        private static HashSet<string> ReadFavorites(string favoriteFile)
+        {
+            if (!File.Exists(favoriteFile))
+                return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            var json = File.ReadAllText(favoriteFile, Encoding.UTF8);
+            var list = JsonSerializer.Deserialize<List<string>>(json)
+                ?? throw new InvalidDataException("favorites.json 内容无效。");
+            return new HashSet<string>(list, StringComparer.OrdinalIgnoreCase);
+        }
+
+        private static void WriteFavoritesAtomically(string favoriteDirectory, string favoriteFile,
+            HashSet<string> favorites)
+        {
+            Directory.CreateDirectory(favoriteDirectory);
+            EnsureHiddenDirectory(favoriteDirectory);
+            var temporaryFile = Path.Combine(favoriteDirectory, $"favorites.{Guid.NewGuid():N}.tmp");
+            try
+            {
+                var json = JsonSerializer.Serialize(favorites.OrderBy(path => path, StringComparer.OrdinalIgnoreCase),
+                    new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(temporaryFile, json, new UTF8Encoding(false));
+                File.Move(temporaryFile, favoriteFile, true);
+            }
+            finally
+            {
+                if (File.Exists(temporaryFile))
+                    File.Delete(temporaryFile);
+            }
+        }
+
+        private static void EnsureHiddenDirectory(string? directory)
+        {
+            if (string.IsNullOrEmpty(directory))
+                return;
+
+            Directory.CreateDirectory(directory);
+            var attributes = File.GetAttributes(directory);
+            if ((attributes & FileAttributes.Hidden) == 0)
+                File.SetAttributes(directory, attributes | FileAttributes.Hidden);
+        }
+
+        private static string CreateMutexName(string favoriteFile)
+        {
+            var normalizedPath = Path.GetFullPath(favoriteFile).ToUpperInvariant();
+            var hash = System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(normalizedPath));
+            return $"MarkdownViewer.Favorites.{Convert.ToHexString(hash)}";
         }
     }
     #endregion

@@ -8,7 +8,7 @@
 
 预期：显示 MarkdownViewer 图标。
 
-<img src="Assets/app_icon.png" width="96" alt="README 同款 HTML 图片">
+<img src="../src/Assets/app_icon.png" width="96" alt="README 同款 HTML 图片">
 
 ### 1.2 Markdown 普通相对图片
 
@@ -56,9 +56,9 @@
 
 ### 2.2 同 workspace 文档
 
-[打开 README.md](README.md)
+[打开 README.md](../README.md)
 
-预期：如果当前 workspace 是本项目目录，在当前实例打开 README，并选中左侧目录树节点。
+预期：如果当前 workspace 是本项目目录，在当前实例打开仓库根目录的 README，并选中左侧目录树节点。
 
 ### 2.3 同 workspace 嵌套文档
 

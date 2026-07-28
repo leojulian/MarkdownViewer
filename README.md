@@ -1,4 +1,6 @@
-# <img src="Assets/app_icon.png" width="32" align="left" style="margin-right:8px"> MarkdownViewer
+中文 | [English](README.en.md)
+
+# <img src="src/Assets/app_icon.png" width="32" align="left" style="margin-right:8px"> MarkdownViewer
 
 基于 WPF + Markdig + WebView2 的 Markdown 文档查看器，支持文件夹浏览、文档树导航、拖拽打开、历史恢复与文件实时监控。
 
@@ -102,24 +104,26 @@
 
 ```
 MarkdownViewer/
-├── App.xaml                 # 应用程序入口 XAML
-├── App.xaml.cs              # 应用程序入口代码
-├── MainWindow.xaml          # 主窗口布局（菜单、工具栏、TreeView、WebView2）
-├── MainWindow.xaml.cs       # 主窗口逻辑
-│   ├── MainWindow           # 窗口类
-│   │   ├── 快捷键处理        # KeyDown 事件 → 菜单/工具栏功能
-│   │   ├── 文件操作          # 打开文件/文件夹、加载渲染
-│   │   ├── 文档树            # PopulateFileTree / CreateDirectoryNode
-│   │   ├── 拖拽支持          # DragEnter / Drop（自动识别文件/文件夹）
-│   │   ├── 文件监控          # FileSystemWatcher（删除/新增/重命名/变更）
-│   │   ├── 历史恢复          # RestoreLastSession / SelectFileInTree
-│   │   ├── 缩放 & 深色模式   # ZoomFactor / ToggleDarkMode
-│   │   └── HTML 渲染包装     # WrapHtml（CSS 注入 + base 路径）
-│   ├── HistoryManager       # 历史记录管理器（JSON 读写、增删查）
-│   └── HistoryEntry         # 历史记录数据模型
-├── MarkdownViewer.csproj    # .NET 8 WPF 项目文件
-└── README.md                # 项目说明
+├── MarkdownViewer.sln
+├── src/
+│   ├── App.xaml
+│   ├── MainWindow.xaml
+│   ├── MainWindow.xaml.cs           # WPF/WebView2 界面编排
+│   ├── Models/                      # 打开模式、历史、收藏模型
+│   ├── Services/                    # 路径规则、文档选择、历史、收藏、配置
+│   ├── Properties/
+│   ├── Assets/
+│   └── MarkdownViewer.csproj
+├── tests/
+│   └── MarkdownViewer.Tests/        # 路径、链接、图片、删除回退、收藏并发测试
+├── samples/
+│   ├── sample.md                    # 综合人工验证入口
+│   └── sample-assets/
+├── README.md
+└── README.en.md
 ```
+
+`MainWindow` 保留窗口状态和 WPF/WebView2 事件编排；不依赖 UI 的路径解析、workspace 匹配、图片路径、相邻文档选择和持久化逻辑位于 `Services`，可以独立测试。
 
 ## 技术栈
 
@@ -137,9 +141,15 @@ MarkdownViewer/
 
 ## 运行方式
 
-```bash
-cd MarkdownViewer
-dotnet run
+```powershell
+dotnet run --project src\MarkdownViewer.csproj
+```
+
+## 构建与测试
+
+```powershell
+dotnet build MarkdownViewer.sln -c Release
+dotnet test MarkdownViewer.sln -c Release
 ```
 
 ## 版本历史
@@ -159,5 +169,6 @@ dotnet run
 | v1.10 | 修复 Windows 打开方式和命令行启动未打开指定 Markdown 文件的问题 |
 | v1.11（本地测试，未发布） | 工作区/单文件模式、历史工作区定位、递归目录树、独立文件监控、原子保存防抖、当前文档删除后按目录树顺序切换下一篇/上一篇、收藏夹隐藏目录原子保存与跨进程并发保护 |
 | v1.12（本地实现，未发布） | 支持 `file:///` URI、本地图片标准 URI、Markdown 链接路由；同 workspace 文档在当前实例定位选中，跨 workspace 文档新开实例，文件夹用 Explorer 打开，普通文件使用系统默认程序 |
+| 下一版本（开发中） | 迁移到 `src/tests/samples` 目录结构，抽离可测试的模型和服务，增加自动化测试，并提供中英文 README |
 
-项目根目录的 [`sample.md`](sample.md) 提供本地图片、Markdown 跳转、文件夹、普通文件、安全拦截和外部链接的综合测试入口。
+[`samples/sample.md`](samples/sample.md) 提供本地图片、Markdown 跳转、文件夹、普通文件、安全拦截和外部链接的综合测试入口。

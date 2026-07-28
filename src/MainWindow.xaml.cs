@@ -24,6 +24,7 @@ namespace MarkdownViewer
         private string? _currentFolderPath;
         private OpenMode _openMode;
         private GridLength _workspaceColumnWidth = new(280);
+        private double _tocColumnWidth = ConfigManager.DefaultTocWidth;
         private double _zoomFactor = 1.0;
         private bool _isDarkMode;
         private readonly MarkdownPipeline _pipeline;
@@ -180,6 +181,8 @@ namespace MarkdownViewer
             _configManager.IsDarkMode = _isDarkMode;
             _configManager.IsTocVisible = TocPanel.Visibility == Visibility.Visible;
             _configManager.IsToolbarVisible = MainToolBar.Visibility == Visibility.Visible;
+            CaptureTocWidth();
+            _configManager.TocWidth = _tocColumnWidth;
             _configManager.Save();
         }
 
@@ -1781,17 +1784,44 @@ namespace MarkdownViewer
 
         private void ShowToc()
         {
+            _tocColumnWidth = ConfigManager.NormalizeTocWidth(_tocColumnWidth);
+            TocColumn.MinWidth = ConfigManager.MinTocWidth;
+            TocColumn.Width = new GridLength(_tocColumnWidth);
+            TocSplitterColumn.Width = new GridLength(5);
             TocPanel.Visibility = Visibility.Visible;
             TocSplitter.Visibility = Visibility.Visible;
             _configManager.IsTocVisible = true;
+            _configManager.TocWidth = _tocColumnWidth;
             _configManager.Save();
         }
 
         private void HideToc()
         {
+            CaptureTocWidth();
             TocPanel.Visibility = Visibility.Collapsed;
             TocSplitter.Visibility = Visibility.Collapsed;
+            TocColumn.MinWidth = 0;
+            TocColumn.Width = new GridLength(0);
+            TocSplitterColumn.Width = new GridLength(0);
             _configManager.IsTocVisible = false;
+            _configManager.TocWidth = _tocColumnWidth;
+            _configManager.Save();
+        }
+
+        private void CaptureTocWidth()
+        {
+            if (TocPanel.Visibility != Visibility.Visible)
+                return;
+
+            var width = TocColumn.ActualWidth > 0 ? TocColumn.ActualWidth : TocColumn.Width.Value;
+            _tocColumnWidth = ConfigManager.NormalizeTocWidth(width);
+        }
+
+        private void TocSplitter_DragCompleted(object sender, System.Windows.Controls.Primitives.DragCompletedEventArgs e)
+        {
+            CaptureTocWidth();
+            TocColumn.Width = new GridLength(_tocColumnWidth);
+            _configManager.TocWidth = _tocColumnWidth;
             _configManager.Save();
         }
 
@@ -1813,9 +1843,15 @@ namespace MarkdownViewer
                     if (string.IsNullOrWhiteSpace(text)) continue;
 
                     var id = GenerateHeadingId(text);
+                    var header = new TextBlock
+                    {
+                        Text = text,
+                        TextWrapping = TextWrapping.NoWrap,
+                        ToolTip = text
+                    };
                     var item = new TreeViewItem
                     {
-                        Header = text,
+                        Header = header,
                         Tag = id,
                         FontSize = 14 - h.Level  // h1=13, h2=12, h3=11...
                     };
@@ -1860,7 +1896,12 @@ namespace MarkdownViewer
             {
                 try
                 {
-                    var text = (item.Header as string) ?? "";
+                    var text = item.Header switch
+                    {
+                        TextBlock header => header.Text,
+                        string value => value,
+                        _ => ""
+                    };
                     var escaped = EscapeJs(text);
                     // 先尝试按 Markdig 生成的 id 找，失败则按文本内容找
                     var script = $"(function(){{ var h = document.getElementById('{id}'); if(!h){{ var hs = document.querySelectorAll('h1,h2,h3,h4,h5,h6'); for(var i=0;i<hs.length;i++){{ if(hs[i].textContent.trim()==='{escaped}'){{ h=hs[i]; break; }} }} }} if(h){{ h.scrollIntoView({{behavior:'auto',block:'start'}}); }} }})();";
@@ -1877,13 +1918,15 @@ namespace MarkdownViewer
             _zoomFactor = c.ZoomFactor;
             ApplyZoom();
             _isDarkMode = c.IsDarkMode;
+            _tocColumnWidth = ConfigManager.NormalizeTocWidth(c.TocWidth);
             if (_isDarkMode && !string.IsNullOrEmpty(_currentFilePath))
                 Reload_Click(this, new RoutedEventArgs());
             if (c.IsTocVisible)
             {
-                TocPanel.Visibility = Visibility.Visible;
-                TocSplitter.Visibility = Visibility.Visible;
+                ShowToc();
             }
+            else
+                HideToc();
             MainToolBar.Visibility = c.IsToolbarVisible ? Visibility.Visible : Visibility.Collapsed;
         }
 

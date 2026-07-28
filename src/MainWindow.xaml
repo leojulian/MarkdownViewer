@@ -154,15 +154,19 @@
                 <!-- 渲染区 + 目录面板 -->
                 <Grid Grid.Row="0">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*" MinWidth="300"/>
+                        <ColumnDefinition x:Name="TocSplitterColumn" Width="0"/>
+                        <ColumnDefinition x:Name="TocColumn" Width="0" MinWidth="0" MaxWidth="480"/>
                     </Grid.ColumnDefinitions>
 
                     <wv2:WebView2 x:Name="webView" Grid.Column="0" />
 
                     <GridSplitter x:Name="TocSplitter" Grid.Column="1"
-                                  Width="5" HorizontalAlignment="Center"
+                                  Width="5" HorizontalAlignment="Stretch"
+                                  ResizeDirection="Columns"
+                                  ResizeBehavior="PreviousAndNext"
+                                  ShowsPreview="False"
+                                  DragCompleted="TocSplitter_DragCompleted"
                                   Background="Transparent" Cursor="SizeWE"
                                   Visibility="Collapsed"/>
 
@@ -188,7 +192,8 @@
                             </Border>
                             <TreeView x:Name="TocTreeView" Grid.Row="1"
                                       SelectedItemChanged="TocTreeView_SelectedItemChanged"
-                                      BorderThickness="0" Padding="4,2">
+                                      BorderThickness="0" Padding="4,2"
+                                      ScrollViewer.HorizontalScrollBarVisibility="Auto">
                                 <TreeView.ItemContainerStyle>
                                     <Style TargetType="TreeViewItem">
                                         <Setter Property="IsExpanded" Value="True"/>

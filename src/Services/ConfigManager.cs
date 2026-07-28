@@ -7,6 +7,10 @@ namespace MarkdownViewer;
 
 internal sealed class ConfigManager
 {
+    internal const double DefaultTocWidth = 280;
+    internal const double MinTocWidth = 150;
+    internal const double MaxTocWidth = 480;
+
     private readonly string _configFile;
 
     public ConfigManager()
@@ -24,6 +28,7 @@ internal sealed class ConfigManager
     public bool IsDarkMode { get; set; }
     public bool IsTocVisible { get; set; }
     public bool IsToolbarVisible { get; set; } = true;
+    public double TocWidth { get; set; } = DefaultTocWidth;
 
     public void Load()
     {
@@ -41,6 +46,7 @@ internal sealed class ConfigManager
             IsDarkMode = data.IsDarkMode;
             IsTocVisible = data.IsTocVisible;
             IsToolbarVisible = data.IsToolbarVisible;
+            TocWidth = NormalizeTocWidth(data.TocWidth);
         }
         catch
         {
@@ -63,5 +69,13 @@ internal sealed class ConfigManager
         {
             // 配置保存失败不应影响查看器主流程。
         }
+    }
+
+    internal static double NormalizeTocWidth(double width)
+    {
+        if (double.IsNaN(width) || double.IsInfinity(width))
+            return DefaultTocWidth;
+
+        return Math.Clamp(width, MinTocWidth, MaxTocWidth);
     }
 }

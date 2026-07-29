@@ -182,4 +182,4 @@ dotnet test MarkdownViewer.sln -c Release
 | v1.10 | 修复 Windows 打开方式和命令行启动未打开指定 Markdown 文件的问题 |
 | v1.11（本地测试，未发布） | 工作区/单文件模式、历史工作区定位、递归目录树、独立文件监控、原子保存防抖、当前文档删除后按目录树顺序切换下一篇/上一篇、收藏夹隐藏目录原子保存与跨进程并发保护 |
 | v1.12（本地实现，未发布） | 支持 `file:///` URI、本地图片标准 URI、Markdown 链接路由；同 workspace 文档在当前实例定位选中，跨 workspace 文档新开实例，文件夹用 Explorer 打开，普通文件使用系统默认程序 |
-| v1.13（准备发布） | 迁移到 `src/tests/samples` 标准目录结构，增加 23 项自动化测试；完善 workspace/单文件模式、`file:///` URI、本地图片和 Markdown 链接处理；增加 TOC 宽度拖动与持久化、长标题横向滚动、中英文 README 和综合验证样例 |
+| v1.13 | 迁移到 `src/tests/samples` 标准目录结构，增加 23 项自动化测试；完善 workspace/单文件模式、`file:///` URI、本地图片和 Markdown 链接处理；增加 TOC 宽度拖动与持久化、长标题横向滚动、中英文 README 和综合验证样例 |

@@ -4,6 +4,12 @@
 
 基于 WPF + Markdig + WebView2 的 Markdown 文档查看器，支持文件夹浏览、文档树导航、拖拽打开、历史恢复与文件实时监控。
 
+## 为什么做这个工具
+
+现在很多 Markdown 文档由 AI Agent 生成，开发者的工作更多是阅读、核对和 review。只为查看一个 `.md` 文件就启动 VS Code、Notepad++ 这类通用编辑器，阅读路径有些笨重。
+
+MarkdownViewer 就是为这个场景做的。打开文件即可阅读，同时保留 workspace 文档树、标题目录、本地图片和链接跳转等 review 时常用的能力。需要修改时，再回到原来的编辑器。
+
 ## 功能概览
 
 ### 📂 文件夹浏览与文档树
@@ -115,7 +121,8 @@ MarkdownViewer/
 │   ├── Assets/
 │   └── MarkdownViewer.csproj
 ├── tests/
-│   └── MarkdownViewer.Tests/        # 路径、链接、图片、删除回退、收藏并发测试
+│   ├── MarkdownViewer.Tests.csproj
+│   └── *Tests.cs                    # 路径、链接、图片、删除回退、收藏并发测试
 ├── samples/
 │   ├── sample.md                    # 综合人工验证入口
 │   └── sample-assets/

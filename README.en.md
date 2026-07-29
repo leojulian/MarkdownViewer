@@ -4,6 +4,12 @@
 
 A Windows Markdown viewer built with WPF, Markdig, and WebView2. It supports workspace navigation, standalone files, drag and drop, session restore, local resources, and live file monitoring.
 
+## Why MarkdownViewer
+
+More Markdown documents are now written by AI agents, leaving developers to spend more time reading, checking, and reviewing them. Opening a general-purpose editor such as VS Code or Notepad++ just to inspect one `.md` file adds unnecessary weight to that workflow.
+
+MarkdownViewer is built for this review loop. It opens documents directly while keeping the workspace tree, table of contents, local images, and link navigation that matter during review. Developers can return to their usual editor when changes are needed without loading a full development environment for routine reading.
+
 ## Features
 
 ### Workspace and document tree
@@ -85,7 +91,8 @@ MarkdownViewer/
 │   ├── Assets/
 │   └── MarkdownViewer.csproj
 ├── tests/
-│   └── MarkdownViewer.Tests/        # Automated rule and persistence tests
+│   ├── MarkdownViewer.Tests.csproj
+│   └── *Tests.cs                    # Automated rule and persistence tests
 ├── samples/
 │   ├── sample.md                    # Manual integration verification
 │   └── sample-assets/

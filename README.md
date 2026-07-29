@@ -6,9 +6,11 @@
 
 ## 为什么做这个工具
 
-现在很多 Markdown 文档由 AI Agent 生成，开发者的工作更多是阅读、核对和 review。只为查看一个 `.md` 文件就启动 VS Code、Notepad++ 这类通用编辑器，阅读路径有些笨重。
+AI Agent 正在把 Markdown 变成开发工作中的实时产物：设计说明、方案、测试记录和交接文档，都可能在几分钟内生成并反复修改。开发者更需要随时看到最新版本，快速定位、阅读和 review，而不是为了查看一份 `.md` 再打开一个完整编辑器。
 
-MarkdownViewer 就是为这个场景做的。打开文件即可阅读，同时保留 workspace 文档树、标题目录、本地图片和链接跳转等 review 时常用的能力。需要修改时，再回到原来的编辑器。
+用 VS Code、Notepad++ 只为阅读文档，往往会带来菜单、插件、项目状态等与阅读无关的干扰。MarkdownViewer 把阅读流程做得更轻：打开文档，文件变化后自动刷新，始终围绕内容本身工作。
+
+AI Agent 负责修改，MarkdownViewer 负责刷新显示，开发者负责判断内容是否正确。workspace 文档树、标题目录、本地图片、链接跳转和文件监控，都服务于这条 review 链路。
 
 ## 功能概览
 
@@ -159,6 +161,10 @@ dotnet build MarkdownViewer.sln -c Release
 dotnet test MarkdownViewer.sln -c Release
 ```
 
+## 综合验证
+
+打开 [`samples/sample.md`](samples/sample.md)，可集中验证本地图片、Markdown 跳转、文件夹和普通文件链接、安全拦截、外部链接以及页面内锚点。
+
 ## 版本历史
 
 | 版本 | 更新内容 |
@@ -176,6 +182,4 @@ dotnet test MarkdownViewer.sln -c Release
 | v1.10 | 修复 Windows 打开方式和命令行启动未打开指定 Markdown 文件的问题 |
 | v1.11（本地测试，未发布） | 工作区/单文件模式、历史工作区定位、递归目录树、独立文件监控、原子保存防抖、当前文档删除后按目录树顺序切换下一篇/上一篇、收藏夹隐藏目录原子保存与跨进程并发保护 |
 | v1.12（本地实现，未发布） | 支持 `file:///` URI、本地图片标准 URI、Markdown 链接路由；同 workspace 文档在当前实例定位选中，跨 workspace 文档新开实例，文件夹用 Explorer 打开，普通文件使用系统默认程序 |
-| 下一版本（开发中） | 迁移到 `src/tests/samples` 目录结构，抽离可测试的模型和服务，增加自动化测试，并提供中英文 README |
-
-[`samples/sample.md`](samples/sample.md) 提供本地图片、Markdown 跳转、文件夹、普通文件、安全拦截和外部链接的综合测试入口。
+| v1.13（准备发布） | 迁移到 `src/tests/samples` 标准目录结构，增加 23 项自动化测试；完善 workspace/单文件模式、`file:///` URI、本地图片和 Markdown 链接处理；增加 TOC 宽度拖动与持久化、长标题横向滚动、中英文 README 和综合验证样例 |

@@ -1,4 +1,4 @@
-# MarkdownViewer v1.12 综合验证文档
+# MarkdownViewer v1.13 综合验证文档
 
 本文件用于快速验证本地图片、Markdown 跳转、文件夹、普通文件和安全拦截。每项下方均写明预期结果。
 

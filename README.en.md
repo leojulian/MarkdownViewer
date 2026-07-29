@@ -6,20 +6,22 @@ A Windows Markdown viewer built with WPF, Markdig, and WebView2. It supports wor
 
 ## Why MarkdownViewer
 
-More Markdown documents are now written by AI agents, leaving developers to spend more time reading, checking, and reviewing them. Opening a general-purpose editor such as VS Code or Notepad++ just to inspect one `.md` file adds unnecessary weight to that workflow.
+AI agents are turning Markdown into a live work product: design notes, proposals, test records, and handoff documents can be generated and revised in minutes. Developers often need to see the latest version, navigate it, and review it—not open another full editor just to read one `.md` file.
 
-MarkdownViewer is built for this review loop. It opens documents directly while keeping the workspace tree, table of contents, local images, and link navigation that matter during review. Developers can return to their usual editor when changes are needed without loading a full development environment for routine reading.
+Using VS Code or Notepad++ only to inspect a document brings menus, plugins, project state, and other distractions. MarkdownViewer keeps the reading loop lightweight: open the document, let the viewer refresh when the file changes, and stay focused on the content.
+
+The AI agent edits. MarkdownViewer refreshes and displays. The developer reviews. The workspace tree, table of contents, local images, links, and file watching are all designed around that loop.
 
 ## Features
 
-### Workspace and document tree
+### 📂 Workspace and document tree
 
 - Open a folder as a workspace and browse Markdown files in their original directory hierarchy.
 - Recursively display nested folders while hiding empty folders.
 - Track the document count and resize the navigation pane with a splitter.
 - When the current document is deleted, select the next document in tree order, or the previous one if no next document exists.
 
-### Workspace and standalone modes
+### 🧭 Workspace and standalone modes
 
 | Mode | Entry points | Tree and favorites | Monitoring |
 |------|--------------|--------------------|------------|
@@ -28,7 +30,7 @@ MarkdownViewer is built for this review loop. It opens documents directly while 
 
 Standalone files reload after external edits while preserving scroll position. If a standalone file is deleted or moved, MarkdownViewer shows an unavailable state instead of opening another file from the same directory.
 
-### Markdown rendering
+### 📄 Markdown rendering
 
 - Markdig with advanced extensions, pipe tables, task lists, emoji, and smileys.
 - WebView2 rendering with light and dark themes.
@@ -37,7 +39,7 @@ Standalone files reload after external edits while preserving scroll position. I
 - Local paths with Chinese characters, spaces, URL encoding, and nested directories.
 - In-page anchors matched by DOM `id`, `name`, or heading text.
 
-### Local links and file URIs
+### 🔗 Local links and file URIs
 
 - Open regular Windows paths and URL-encoded `file:///` Markdown URIs.
 - Open Markdown files from the same workspace in the current instance and select their tree nodes.
@@ -46,14 +48,14 @@ Standalone files reload after external edits while preserving scroll position. I
 - Open ordinary files with their system default applications.
 - Block executable and script extensions from being launched directly by Markdown documents.
 
-### History, favorites, and configuration
+### 🔄 History, favorites, and configuration
 
 - Restore the latest workspace and selected document.
 - Store up to 20 workspace history entries in `{exe}/History/history.json`.
 - Save favorites atomically and coordinate concurrent instances with a named mutex.
 - Persist zoom, theme, table-of-contents visibility, and toolbar visibility in `{exe}/History/config.json`.
 
-### Search and navigation
+### 🔍 Search and navigation
 
 - `Ctrl+F` search with current and total match counts.
 - `Enter` for the next match and `Shift+Enter` for the previous match.
@@ -139,4 +141,4 @@ Open [`samples/sample.md`](samples/sample.md) in workspace mode to verify local 
 | v1.10 | Correct command-line and Windows Open With startup behavior |
 | v1.11 (local test build) | Workspace/standalone modes, recursive tree, watcher debounce, deletion fallback, concurrent favorites |
 | v1.12 (local implementation) | `file:///` URI support, local images, workspace-aware Markdown links, Explorer folder links, system file opening |
-| Next version (in progress) | `src/tests/samples` layout, extracted testable services, automated tests, and bilingual documentation |
+| v1.13 (release candidate) | Standard `src/tests/samples` layout, 23 automated tests, workspace/standalone modes, `file:///` URI and local resource handling, resizable and persistent TOC, bilingual documentation, and the integrated sample document |

@@ -142,3 +142,4 @@ Open [`samples/sample.md`](samples/sample.md) in workspace mode to verify local 
 | v1.11 (local test build) | Workspace/standalone modes, recursive tree, watcher debounce, deletion fallback, concurrent favorites |
 | v1.12 (local implementation) | `file:///` URI support, local images, workspace-aware Markdown links, Explorer folder links, system file opening |
 | v1.13 | Standard `src/tests/samples` layout, 23 automated tests, workspace/standalone modes, `file:///` URI and local resource handling, resizable and persistent TOC, bilingual documentation, and the integrated sample document |
+| v1.14 | Synchronize the document tree selection, title, status, path, and favorite state when WebView2 history navigation returns to a Markdown document; add history-target validation tests and navigation-state regression coverage |

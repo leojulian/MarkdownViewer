@@ -44,6 +44,7 @@ namespace MarkdownViewer
         private double _scrollRestoreY;
         private bool _isAutoReload;
         private string? _pendingFragment;
+        private ulong? _latestNavigationId;
         private readonly List<string> _activeResourceHosts = new();
         private const int FileEventDebounceMilliseconds = 600;
 
@@ -108,6 +109,7 @@ namespace MarkdownViewer
             await webView.EnsureCoreWebView2Async();
             webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
             webView.CoreWebView2.Settings.AreBrowserAcceleratorKeysEnabled = false;
+            webView.CoreWebView2.NavigationStarting += WebView_NavigationStarting;
             webView.CoreWebView2.NavigationCompleted += WebView_NavigationCompleted;
             webView.CoreWebView2.WebMessageReceived += WebView_WebMessageReceived;
             webView.CoreWebView2.NewWindowRequested += WebView_NewWindowRequested;
@@ -616,11 +618,50 @@ namespace MarkdownViewer
                 }
             }
 
+            if (e.IsSuccess && (!_latestNavigationId.HasValue || e.NavigationId == _latestNavigationId.Value))
+                await SyncCurrentDocumentFromWebView();
+
             if (!string.IsNullOrEmpty(_pendingFragment))
             {
                 var fragment = _pendingFragment;
                 _pendingFragment = null;
                 await ScrollToFragment(fragment);
+            }
+        }
+
+        private void WebView_NavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
+        {
+            _latestNavigationId = e.NavigationId;
+        }
+
+        private async System.Threading.Tasks.Task SyncCurrentDocumentFromWebView()
+        {
+            if (webView.CoreWebView2 == null)
+                return;
+
+            try
+            {
+                var scriptResult = await webView.CoreWebView2.ExecuteScriptAsync(
+                    "document.querySelector('meta[name=\\\"markdownviewer-file\\\"]')?.getAttribute('content') || ''");
+                var filePath = DocumentMetadataService.ParseScriptResult(scriptResult);
+                if (!DocumentSelectionService.CanSynchronizeHistoryDocument(
+                        _openMode, _currentFolderPath, filePath))
+                    return;
+
+                var targetNode = FindFileNodeInTree(filePath!);
+                if (targetNode == null)
+                    return;
+
+                SelectFileNode(targetNode, loadFile: false);
+                _currentFilePath = filePath;
+                FilePathText.Text = filePath;
+                StatusText.Text = $"已加载: {Path.GetFileName(filePath)}";
+                Title = $"{Path.GetFileName(filePath)} - Markdown 查看器";
+                UpdateFavButton();
+            }
+            catch
+            {
+                // 元数据读取或 UI 同步失败时保持导航前的外部状态。
             }
         }
 
@@ -1186,7 +1227,7 @@ namespace MarkdownViewer
             }
         }
 
-        private bool SelectFileInTree(string filePath, bool loadFile = true)
+        private TreeViewItem? FindFileNodeInTree(string filePath)
         {
             foreach (var item in FileTreeView.Items)
             {
@@ -1194,24 +1235,40 @@ namespace MarkdownViewer
                 {
                     var targetNode = FindFileNodeByPath(rootNode, filePath);
                     if (targetNode != null)
-                    {
-                        // 确保所有父节点展开
-                        ExpandAncestors(targetNode);
-
-                        _isRestoringFileSelection = true;
-                        targetNode.IsSelected = true;
-                        targetNode.BringIntoView();
-                        _isRestoringFileSelection = false;
-
-                        if (loadFile && targetNode.Tag is string path && File.Exists(path))
-                        {
-                            LoadMarkdownFile(path);
-                        }
-                        return true;
-                    }
+                        return targetNode;
                 }
             }
-            return false;
+
+            return null;
+        }
+
+        private void SelectFileNode(TreeViewItem targetNode, bool loadFile)
+        {
+            ExpandAncestors(targetNode);
+
+            _isRestoringFileSelection = true;
+            try
+            {
+                targetNode.IsSelected = true;
+                targetNode.BringIntoView();
+            }
+            finally
+            {
+                _isRestoringFileSelection = false;
+            }
+
+            if (loadFile && targetNode.Tag is string path && File.Exists(path))
+                LoadMarkdownFile(path);
+        }
+
+        private bool SelectFileInTree(string filePath, bool loadFile = true)
+        {
+            var targetNode = FindFileNodeInTree(filePath);
+            if (targetNode == null)
+                return false;
+
+            SelectFileNode(targetNode, loadFile);
+            return true;
         }
 
         private TreeViewItem? FindFileNodeByPath(TreeViewItem node, string filePath)
@@ -1327,12 +1384,14 @@ namespace MarkdownViewer
                 var baseUri = new Uri(Path.GetFullPath(baseFilePath)).AbsoluteUri;
                 baseTag = $"<base href=\"{System.Net.WebUtility.HtmlEncode(baseUri)}\">";
             }
+            var documentMetadataTag = DocumentMetadataService.BuildMetadataTag(baseFilePath);
 
             return $@"<!DOCTYPE html>
 <html lang=""zh-CN"">
 <head>
     <meta charset=""UTF-8"">
     {baseTag}
+    {documentMetadataTag}
     <script>
         (function() {{
             document.addEventListener('click', function(event) {{

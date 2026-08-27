@@ -37,7 +37,13 @@ Standalone files reload after external edits while preserving scroll position. I
 - Offline Mermaid rendering.
 - Local Markdown and HTML images through controlled WebView2 virtual-host mappings.
 - Local paths with Chinese characters, spaces, URL encoding, and nested directories.
-- In-page anchors matched by DOM `id`, `name`, or heading text.
+- GitHub-compatible in-page anchors for numbered, English, Chinese, and duplicate headings.
+
+### 📤 HTML export
+
+- Export the current Markdown document from the File menu as one offline HTML file.
+- Embed local images, styles, and Mermaid; use the currently selected light or dark theme.
+- Preserve remote image URLs and report how many resources still require a network connection.
 
 ### 🔗 Local links and file URIs
 
@@ -143,3 +149,4 @@ Open [`samples/sample.md`](samples/sample.md) in workspace mode to verify local 
 | v1.12 (local implementation) | `file:///` URI support, local images, workspace-aware Markdown links, Explorer folder links, system file opening |
 | v1.13 | Standard `src/tests/samples` layout, 23 automated tests, workspace/standalone modes, `file:///` URI and local resource handling, resizable and persistent TOC, bilingual documentation, and the integrated sample document |
 | v1.14 | Synchronize the document tree selection, title, status, path, and favorite state when WebView2 history navigation returns to a Markdown document; add history-target validation tests and navigation-state regression coverage |
+| v1.15 | Use GitHub-compatible heading IDs for links and the TOC, export the current document as one offline HTML file, and add document-open plus WebView2 navigation/back/forward performance gates |

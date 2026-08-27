@@ -26,7 +26,13 @@ AI Agent 负责修改，MarkdownViewer 负责刷新显示，开发者负责判�
 - 自定义 CSS 样式，深色/浅色模式一键切换
 - 本地图片通过 WebView2 受控虚拟主机映射加载，支持 HTML/Markdown 图片、中文、空格、URL 编码和多级子目录
 - 本地 Markdown 链接会按当前 workspace 边界在当前实例或新实例中打开
+- GitHub 风格页内锚点支持数字前缀、中英文和重复标题
 - 文件夹链接使用 Explorer 打开，其他普通文件交给系统默认程序
+
+### 📤 HTML 导出
+- 从“文件”菜单将当前 Markdown 导出为离线单文件 HTML
+- 本地图片、样式和 Mermaid 脚本内嵌，导出主题跟随当前预览
+- 网络图片保留原地址，并在导出完成时提示仍需联网的资源数量
 
 ### 🖱️ 拖拽支持
 - 拖拽 **文件夹** → 自动填充文档树
@@ -184,3 +190,4 @@ dotnet test MarkdownViewer.sln -c Release
 | v1.12（本地实现，未发布） | 支持 `file:///` URI、本地图片标准 URI、Markdown 链接路由；同 workspace 文档在当前实例定位选中，跨 workspace 文档新开实例，文件夹用 Explorer 打开，普通文件使用系统默认程序 |
 | v1.13 | 迁移到 `src/tests/samples` 标准目录结构，增加 23 项自动化测试；完善 workspace/单文件模式、`file:///` URI、本地图片和 Markdown 链接处理；增加 TOC 宽度拖动与持久化、长标题横向滚动、中英文 README 和综合验证样例 |
 | v1.14 | 修复 Markdown 链接跳转后使用 WebView2 前进/后退时的文档树选择、标题、状态栏、路径和收藏状态同步；增加历史目标有效性测试与导航状态回归验证 |
+| v1.15 | 页内链接和目录统一使用 GitHub 风格标题 ID；支持当前文档导出离线单文件 HTML；增加文档打开及 WebView2 连续导航、后退、前进性能门禁 |

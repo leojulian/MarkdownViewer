@@ -11,8 +11,6 @@ using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
-using Markdig;
-using Markdig.Syntax;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Win32;
 
@@ -27,7 +25,6 @@ namespace MarkdownViewer
         private double _tocColumnWidth = ConfigManager.DefaultTocWidth;
         private double _zoomFactor = 1.0;
         private bool _isDarkMode;
-        private readonly MarkdownPipeline _pipeline;
         private readonly HistoryManager _historyManager;
         private readonly FavoritesManager _favoritesManager;
         private readonly ConfigManager _configManager;
@@ -89,12 +86,6 @@ namespace MarkdownViewer
         {
             InitializeComponent();
             _startupFilePath = startupFilePath;
-            _pipeline = new MarkdownPipelineBuilder()
-                .UseAdvancedExtensions()
-                .UsePipeTables()
-                .UseTaskLists()
-                .UseEmojiAndSmiley()
-                .Build();
 
             _historyManager = new HistoryManager();
             _favoritesManager = new FavoritesManager();
@@ -331,6 +322,53 @@ namespace MarkdownViewer
             if (dialog.ShowDialog() == true)
             {
                 OpenWorkspace(dialog.FolderName);
+            }
+        }
+
+        private void ExportHtml_Click(object sender, RoutedEventArgs e)
+        {
+            if (string.IsNullOrEmpty(_currentFilePath) || !File.Exists(_currentFilePath))
+            {
+                MessageBox.Show("当前文档不可用，无法导出。", "导出 HTML",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            var dialog = new SaveFileDialog
+            {
+                Filter = "HTML 文档 (*.html)|*.html|所有文件 (*.*)|*.*",
+                Title = "导出 HTML 文档",
+                DefaultExt = ".html",
+                AddExtension = true,
+                FileName = Path.GetFileNameWithoutExtension(_currentFilePath) + ".html",
+                InitialDirectory = Path.GetDirectoryName(_currentFilePath)
+            };
+
+            if (dialog.ShowDialog() != true)
+                return;
+
+            try
+            {
+                var markdown = File.ReadAllText(_currentFilePath, Encoding.UTF8);
+                var result = HtmlExportService.CreateDocument(
+                    markdown, _currentFilePath, _isDarkMode, _mermaidJsContent);
+                HtmlExportService.WriteAtomically(dialog.FileName, result.Html);
+
+                StatusText.Text = $"已导出 HTML: {dialog.FileName}";
+                var details = new List<string> { $"已导出到:\n{dialog.FileName}" };
+                if (result.WarningCount > 0)
+                    details.Add($"有 {result.WarningCount} 个本地图片未能内嵌，已保留原引用。");
+                if (result.ExternalResourceCount > 0)
+                    details.Add($"有 {result.ExternalResourceCount} 个网络图片仍需联网加载。");
+
+                MessageBox.Show(string.Join("\n\n", details), "导出 HTML",
+                    MessageBoxButton.OK,
+                    result.WarningCount > 0 ? MessageBoxImage.Warning : MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"导出 HTML 失败: {ex.Message}", "导出 HTML",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -575,9 +613,9 @@ namespace MarkdownViewer
             try
             {
                 var markdown = File.ReadAllText(filePath, Encoding.UTF8);
-                var html = Markdig.Markdown.ToHtml(markdown, _pipeline);
-                html = RewriteLocalImageSources(html, filePath);
-                BuildToc(markdown);
+                var document = MarkdownRenderingService.Render(markdown);
+                var html = RewriteLocalImageSources(document.Html, filePath);
+                BuildToc(document.Headings);
                 var fullHtml = WrapHtml(html, filePath);
 
                 webView.NavigateToString(fullHtml);
@@ -1884,69 +1922,42 @@ namespace MarkdownViewer
             _configManager.Save();
         }
 
-        private void BuildToc(string markdown)
+        private void BuildToc(IReadOnlyList<MarkdownHeading> headings)
         {
             TocTreeView.Items.Clear();
-            try
+            if (headings.Count == 0)
+                return;
+
+            var stack = new Stack<(TreeViewItem node, int level)>();
+
+            foreach (var heading in headings)
             {
-                var doc = Markdig.Markdown.Parse(markdown, _pipeline);
-                var headings = doc.Descendants<Markdig.Syntax.HeadingBlock>().ToList();
-                if (headings.Count == 0) return;
+                if (string.IsNullOrWhiteSpace(heading.Text))
+                    continue;
 
-                // 用栈构建层级
-                var stack = new Stack<(TreeViewItem node, int level)>();
-
-                foreach (var h in headings)
+                var header = new TextBlock
                 {
-                    var text = h.Inline?.FirstChild?.ToString() ?? "";
-                    if (string.IsNullOrWhiteSpace(text)) continue;
+                    Text = heading.Text,
+                    TextWrapping = TextWrapping.NoWrap,
+                    ToolTip = heading.Text
+                };
+                var item = new TreeViewItem
+                {
+                    Header = header,
+                    Tag = heading.Id,
+                    FontSize = 14 - heading.Level
+                };
 
-                    var id = GenerateHeadingId(text);
-                    var header = new TextBlock
-                    {
-                        Text = text,
-                        TextWrapping = TextWrapping.NoWrap,
-                        ToolTip = text
-                    };
-                    var item = new TreeViewItem
-                    {
-                        Header = header,
-                        Tag = id,
-                        FontSize = 14 - h.Level  // h1=13, h2=12, h3=11...
-                    };
+                while (stack.Count > 0 && stack.Peek().level >= heading.Level)
+                    stack.Pop();
 
-                    // 找到合适的父节点
-                    while (stack.Count > 0 && stack.Peek().level >= h.Level)
-                        stack.Pop();
+                if (stack.Count == 0)
+                    TocTreeView.Items.Add(item);
+                else
+                    stack.Peek().node.Items.Add(item);
 
-                    if (stack.Count == 0)
-                    {
-                        TocTreeView.Items.Add(item);
-                    }
-                    else
-                    {
-                        stack.Peek().node.Items.Add(item);
-                    }
-                    stack.Push((item, h.Level));
-                }
+                stack.Push((item, heading.Level));
             }
-            catch { }
-        }
-
-        private static string GenerateHeadingId(string text)
-        {
-            var sb = new StringBuilder();
-            foreach (var c in text)
-            {
-                if (char.IsLetterOrDigit(c) || c == '-' || c == '_')
-                    sb.Append(char.ToLowerInvariant(c));
-                else if (c == ' ')
-                    sb.Append('-');
-            }
-            var id = sb.ToString();
-            if (id.Length > 0 && char.IsDigit(id[0]))
-                id = "section-" + id;
-            return id;
         }
 
         private async void TocTreeView_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)

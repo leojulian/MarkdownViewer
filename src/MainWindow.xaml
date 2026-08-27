@@ -25,6 +25,7 @@
                 <MenuItem Header="打开文件夹(_D)" Click="OpenFolder_Click" InputGestureText="Ctrl+Shift+O"/>
                 <Separator/>
                 <MenuItem Header="重新加载(_R)" Click="Reload_Click" InputGestureText="F5"/>
+                <MenuItem Header="导出 HTML 文档(_E)" Click="ExportHtml_Click"/>
                 <Separator/>
                 <MenuItem x:Name="HistoryMenu" Header="历史记录(_H)" SubmenuOpened="HistoryMenu_SubmenuOpened">
                     <MenuItem Header="(加载中...)" IsEnabled="False"/>

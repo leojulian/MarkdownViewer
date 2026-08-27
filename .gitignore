@@ -14,6 +14,9 @@ publish/
 ## History
 History/
 
+## Verification outputs
+.verify/
+
 ## IDE
 .vs/
 .vscode/

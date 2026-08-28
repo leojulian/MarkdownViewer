@@ -58,7 +58,8 @@ AI Agent 负责修改，MarkdownViewer 负责刷新显示，开发者负责判�
 ### 🔄 历史记录
 - 关闭时自动保存当前文件夹与文档路径
 - 启动时自动恢复上次会话，定位到上次查看的文档
-- 记录文件位于 `{exe}/History/history.json`，最多保留 20 条
+- 记录文件位于 `{exe}/Data/history.json`，最多保留 20 条
+- 升级时若新路径尚无记录，会兼容读取旧 `{exe}/History/history.json`；后续保存写入新目录
 
 ### 🗑️ 文件实时监控
 - 通过 `FileSystemWatcher` 监控已打开文件夹的文件变更
@@ -99,7 +100,8 @@ AI Agent 负责修改，MarkdownViewer 负责刷新显示，开发者负责判�
 
 ### ⚙️ UI 配置持久化
 - 缩放、深色模式、目录、工具栏状态自动保存
-- 配置位于 `{exe}/History/config.json`，每次变更即时写入
+- 配置位于 `{exe}/Data/config.json`，每次变更即时写入
+- 升级时若新路径尚无配置，会兼容读取旧 `{exe}/History/config.json`；后续保存写入新目录
 
 ## 快捷键
 
@@ -191,3 +193,4 @@ dotnet test MarkdownViewer.sln -c Release
 | v1.13 | 迁移到 `src/tests/samples` 标准目录结构，增加 23 项自动化测试；完善 workspace/单文件模式、`file:///` URI、本地图片和 Markdown 链接处理；增加 TOC 宽度拖动与持久化、长标题横向滚动、中英文 README 和综合验证样例 |
 | v1.14 | 修复 Markdown 链接跳转后使用 WebView2 前进/后退时的文档树选择、标题、状态栏、路径和收藏状态同步；增加历史目标有效性测试与导航状态回归验证 |
 | v1.15 | 页内链接和目录统一使用 GitHub 风格标题 ID；支持当前文档导出离线单文件 HTML；增加文档打开及 WebView2 连续导航、后退、前进性能门禁 |
+| v1.15.1 | 将历史记录和 UI 配置迁移到 `{exe}/Data`，兼容读取旧 `{exe}/History` 数据 |

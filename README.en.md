@@ -57,9 +57,11 @@ Standalone files reload after external edits while preserving scroll position. I
 ### 🔄 History, favorites, and configuration
 
 - Restore the latest workspace and selected document.
-- Store up to 20 workspace history entries in `{exe}/History/history.json`.
+- Store up to 20 workspace history entries in `{exe}/Data/history.json`.
+- When the new path has no history yet, load the legacy `{exe}/History/history.json`; subsequent saves use the new directory.
 - Save favorites atomically and coordinate concurrent instances with a named mutex.
-- Persist zoom, theme, table-of-contents visibility, and toolbar visibility in `{exe}/History/config.json`.
+- Persist zoom, theme, table-of-contents visibility, and toolbar visibility in `{exe}/Data/config.json`.
+- When the new path has no configuration yet, load the legacy `{exe}/History/config.json`; subsequent saves use the new directory.
 
 ### 🔍 Search and navigation
 
@@ -150,3 +152,4 @@ Open [`samples/sample.md`](samples/sample.md) in workspace mode to verify local 
 | v1.13 | Standard `src/tests/samples` layout, 23 automated tests, workspace/standalone modes, `file:///` URI and local resource handling, resizable and persistent TOC, bilingual documentation, and the integrated sample document |
 | v1.14 | Synchronize the document tree selection, title, status, path, and favorite state when WebView2 history navigation returns to a Markdown document; add history-target validation tests and navigation-state regression coverage |
 | v1.15 | Use GitHub-compatible heading IDs for links and the TOC, export the current document as one offline HTML file, and add document-open plus WebView2 navigation/back/forward performance gates |
+| v1.15.1 | Move workspace history and UI configuration to `{exe}/Data` while preserving read compatibility with legacy `{exe}/History` data |

@@ -1,5 +1,3 @@
-using MarkdownViewer;
-
 namespace MarkdownViewer.Tests;
 
 public sealed class HistoryManagerTests
@@ -14,6 +12,9 @@ public sealed class HistoryManagerTests
         var writer = new HistoryManager(temp.Path);
         writer.AddEntry(workspace, document);
         writer.Save();
+
+        Assert.True(File.Exists(Path.Combine(temp.Path, "Data", "history.json")));
+        Assert.False(File.Exists(Path.Combine(temp.Path, "History", "history.json")));
 
         var reader = new HistoryManager(temp.Path);
         reader.Load();
@@ -37,5 +38,43 @@ public sealed class HistoryManagerTests
         Assert.Equal(2, entries.Count);
         Assert.Equal("first", entries[0].FolderPath);
         Assert.Equal("updated.md", entries[0].LastFilePath);
+    }
+
+    [Fact]
+    public void Load_WhenDataHistoryIsMissing_ReadsLegacyHistoryFile()
+    {
+        using var temp = new TemporaryDirectory();
+        var historyDirectory = Path.Combine(temp.Path, "History");
+        Directory.CreateDirectory(historyDirectory);
+        File.WriteAllText(Path.Combine(historyDirectory, "history.json"),
+            "[{\"FolderPath\":\"legacy\",\"LastFilePath\":\"legacy.md\"}]");
+
+        var history = new HistoryManager(temp.Path);
+        history.Load();
+
+        var latest = Assert.Single(history.GetAll());
+        Assert.Equal("legacy", latest.FolderPath);
+        Assert.Equal("legacy.md", latest.LastFilePath);
+    }
+
+    [Fact]
+    public void Load_WhenDataAndLegacyHistoryExist_PrefersDataHistory()
+    {
+        using var temp = new TemporaryDirectory();
+        var dataDirectory = Path.Combine(temp.Path, "Data");
+        var historyDirectory = Path.Combine(temp.Path, "History");
+        Directory.CreateDirectory(dataDirectory);
+        Directory.CreateDirectory(historyDirectory);
+        File.WriteAllText(Path.Combine(dataDirectory, "history.json"),
+            "[{\"FolderPath\":\"current\",\"LastFilePath\":\"current.md\"}]");
+        File.WriteAllText(Path.Combine(historyDirectory, "history.json"),
+            "[{\"FolderPath\":\"legacy\",\"LastFilePath\":\"legacy.md\"}]");
+
+        var history = new HistoryManager(temp.Path);
+        history.Load();
+
+        var latest = Assert.Single(history.GetAll());
+        Assert.Equal("current", latest.FolderPath);
+        Assert.Equal("current.md", latest.LastFilePath);
     }
 }

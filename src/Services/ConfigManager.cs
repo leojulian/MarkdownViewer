@@ -12,6 +12,7 @@ internal sealed class ConfigManager
     internal const double MaxTocWidth = 480;
 
     private readonly string _configFile;
+    private readonly string _legacyConfigFile;
 
     public ConfigManager()
         : this(AppDomain.CurrentDomain.BaseDirectory)
@@ -20,8 +21,8 @@ internal sealed class ConfigManager
 
     internal ConfigManager(string baseDirectory)
     {
-        var historyDirectory = Path.Combine(baseDirectory, "History");
-        _configFile = Path.Combine(historyDirectory, "config.json");
+        _configFile = Path.Combine(baseDirectory, "Data", "config.json");
+        _legacyConfigFile = Path.Combine(baseDirectory, "History", "config.json");
     }
 
     public double ZoomFactor { get; set; } = 1.0;
@@ -34,10 +35,11 @@ internal sealed class ConfigManager
     {
         try
         {
-            if (!File.Exists(_configFile))
+            var configFile = File.Exists(_configFile) ? _configFile : _legacyConfigFile;
+            if (!File.Exists(configFile))
                 return;
 
-            var json = File.ReadAllText(_configFile, Encoding.UTF8);
+            var json = File.ReadAllText(configFile, Encoding.UTF8);
             var data = JsonSerializer.Deserialize<ConfigManager>(json);
             if (data == null)
                 return;

@@ -10,23 +10,27 @@ namespace MarkdownViewer;
 internal sealed class HistoryManager
 {
     private const int MaxHistoryEntries = 20;
-    private readonly string _historyDirectory;
+    private readonly string _dataDirectory;
     private readonly string _historyFile;
+    private readonly string _legacyHistoryFile;
     private List<HistoryEntry> _entries = new();
 
     public HistoryManager(string? baseDirectory = null)
     {
-        _historyDirectory = Path.Combine(baseDirectory ?? AppDomain.CurrentDomain.BaseDirectory, "History");
-        _historyFile = Path.Combine(_historyDirectory, "history.json");
+        var rootDirectory = baseDirectory ?? AppDomain.CurrentDomain.BaseDirectory;
+        _dataDirectory = Path.Combine(rootDirectory, "Data");
+        _historyFile = Path.Combine(_dataDirectory, "history.json");
+        _legacyHistoryFile = Path.Combine(rootDirectory, "History", "history.json");
     }
 
     public void Load()
     {
         try
         {
-            if (File.Exists(_historyFile))
+            var historyFile = File.Exists(_historyFile) ? _historyFile : _legacyHistoryFile;
+            if (File.Exists(historyFile))
             {
-                var json = File.ReadAllText(_historyFile, Encoding.UTF8);
+                var json = File.ReadAllText(historyFile, Encoding.UTF8);
                 _entries = JsonSerializer.Deserialize<List<HistoryEntry>>(json) ?? new List<HistoryEntry>();
             }
         }
@@ -40,7 +44,7 @@ internal sealed class HistoryManager
     {
         try
         {
-            Directory.CreateDirectory(_historyDirectory);
+            Directory.CreateDirectory(_dataDirectory);
 
             List<HistoryEntry> existing = new();
             if (File.Exists(_historyFile))

@@ -34,6 +34,19 @@ public sealed class MarkdownRenderingServiceTests
     }
 
     [Fact]
+    public void Render_CombinesAllInlineContentInHeadingMetadata()
+    {
+        const string markdown = "#### 3.3.2 Core-owned `PrepareParam`字段";
+
+        dynamic document = Render(markdown);
+        var headings = ((IEnumerable)document.Headings).Cast<object>().ToArray();
+        dynamic heading = Assert.Single(headings);
+
+        Assert.Equal("3.3.2 Core-owned PrepareParam字段", (string)heading.Text);
+        Assert.Contains(">3.3.2 Core-owned <code>PrepareParam</code>字段</h4>", (string)document.Html);
+    }
+
+    [Fact]
     public void Render_HeadingMetadataMatchesRenderedHtmlIdentifiers()
     {
         const string markdown = "# Overview\n\n## 3. Pipeline 配置与规划产生的字段\n\n## 重复标题\n\n## 重复标题";

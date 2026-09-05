@@ -20,11 +20,17 @@ public static class MarkdownRenderingService
         var headings = document.Descendants<HeadingBlock>()
             .Select(heading => new MarkdownHeading(
                 heading.Level,
-                heading.Inline?.FirstChild?.ToString() ?? string.Empty,
+                GetHeadingText(markdown, heading),
                 heading.GetAttributes().Id ?? string.Empty))
             .ToArray();
 
         return new RenderedMarkdownDocument(html, headings);
+    }
+
+    private static string GetHeadingText(string markdown, HeadingBlock heading)
+    {
+        var source = markdown.Substring(heading.Span.Start, heading.Span.Length);
+        return Markdown.ToPlainText(source, Pipeline).TrimEnd('\r', '\n');
     }
 
     private static MarkdownPipeline CreatePipeline()
